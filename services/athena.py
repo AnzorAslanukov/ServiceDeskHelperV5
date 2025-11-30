@@ -111,38 +111,61 @@ class Athena:
 
         return None
 
-    def get_ticket_data(self, ticket_number):
+    def get_ticket_data(self, ticket_number, data_type="view"):
         if not self.token:
             self.token = self.get_token()
             if not self.token:
                 return None
 
-        # Replace placeholder
-        json_str = self.json_template.replace('{{TICKET_ID}}', ticket_number)
-
-        try:
-            payload = json.loads(json_str)
-        except json.JSONDecodeError:
-            if DEBUG:
-                self.output.add_line("Invalid JSON template")
-            return None
-
         headers = {
-            'Authorization': f'Bearer {self.token}',
-            'Content-Type': 'application/json'
+            'Authorization': f'Bearer {self.token}'
         }
 
-        try:
-            response = requests.post(self.irv_url, headers=headers, json=payload, timeout=30)
-            if response.status_code == 200:
-                return response.json()  # Assuming you want to return the data
-            else:
+        if data_type == "view":
+            # Replace placeholder
+            json_str = self.json_template.replace('{{TICKET_ID}}', ticket_number)
+
+            try:
+                payload = json.loads(json_str)
+            except json.JSONDecodeError:
                 if DEBUG:
-                    self.output.add_line(f"GET ticket data failed: {response.status_code} - {response.text}")
+                    self.output.add_line("Invalid JSON template")
                 return None
-        except requests.exceptions.RequestException as e:
+
+            headers['Content-Type'] = 'application/json'
+
+            try:
+                response = requests.post(self.irv_url, headers=headers, json=payload, timeout=30)
+                if response.status_code == 200:
+                    return response.json()  # Assuming you want to return the data
+                else:
+                    if DEBUG:
+                        self.output.add_line(f"GET ticket data failed: {response.status_code} - {response.text}")
+                    return None
+            except requests.exceptions.RequestException as e:
+                if DEBUG:
+                    self.output.add_line(f"Network error: {str(e)}")
+                return None
+
+        elif data_type == "incident":
+            url = f"{self.ir_url}{ticket_number}"
+
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    return response.json()  # Assuming you want to return the data
+                else:
+                    if DEBUG:
+                        self.output.add_line(f"Incident ticket data failed: {response.status_code} - {response.text}")
+                    return None
+            except requests.exceptions.RequestException as e:
+                if DEBUG:
+                    self.output.add_line(f"Network error: {str(e)}")
+                return None
+
+        else:
             if DEBUG:
-                self.output.add_line(f"Network error: {str(e)}")
+                self.output.add_line(f"Unknown data_type: {data_type}")
             return None
 
 
@@ -156,7 +179,7 @@ if __name__ == "__main__" and TEST_RUN:
         athena_client.output.add_line("Token obtained successfully")
 
         # Test get_ticket_data
-        ticket_data = athena_client.get_ticket_data("IR10107172")
+        ticket_data = athena_client.get_ticket_data("IR10107172", data_type="incident")
         if ticket_data:
             athena_client.output.add_line("Ticket data retrieved:")
             athena_client.output.add_line(json.dumps(ticket_data, indent=4))
