@@ -25,7 +25,6 @@ class Athena:
         - ATHENA_USERNAME
         - ATHENA_PASSWORD
         - ATHENA_CLIENT_ID
-        - ATHENA_AUTH_URL
         - ATHENA_BASE_URL
         - ATHENA_JSON_TEMPLATE
         """
@@ -33,8 +32,10 @@ class Athena:
         self.password = os.getenv('ATHENA_PASSWORD')
         self.client_id = os.getenv('ATHENA_CLIENT_ID')
         
-        self.auth_url = os.getenv('ATHENA_AUTH_URL')
         self.base_url = os.getenv('ATHENA_BASE_URL')
+        self.auth_url = os.getenv('ATHENA_AUTH_URL')
+        self.irv_url= os.getenv('ATHENA_INCIDENT_VIEW_URL')
+        self.ir_url = os.getenv('ATHENA_INCIDENT_URL')
         
         # Get JSON template from environment
         self.json_template = os.getenv('ATHENA_JSON_TEMPLATE')
@@ -43,8 +44,6 @@ class Athena:
         self.output = Output()
         if DEBUG:
             self.output.add_line("Athena client initialized")
-            self.output.add_line(f"Auth URL: {self.auth_url}")
-            self.output.add_line(f"Base URL: {self.base_url}")
 
     def get_token(self):
         """
@@ -58,8 +57,6 @@ class Athena:
 
         if PROCESS_INDICATORS:
             print("Contacting Athena API for authentication...")
-
-        token_url = f"{self.auth_url}oauth2/token"
         
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -74,8 +71,8 @@ class Athena:
 
         try:
             if DEBUG:
-                self.output.add_line(f"Making auth request to {token_url}")
-            response = requests.post(token_url, headers=headers, data=data, timeout=30)
+                self.output.add_line(f"Making auth request to {self.auth_url}")
+            response = requests.post(self.auth_url, headers=headers, data=data, timeout=30)
             if DEBUG:
                 self.output.add_line(f"Auth response status: {response.status_code}")
 
@@ -115,7 +112,38 @@ class Athena:
         return None
 
     def get_ticket_data(self, ticket_number):
-        return None
+        if not self.token:
+            self.token = self.get_token()
+            if not self.token:
+                return None
+
+        # Replace placeholder
+        json_str = self.json_template.replace('{{TICKET_ID}}', ticket_number)
+
+        try:
+            payload = json.loads(json_str)
+        except json.JSONDecodeError:
+            if DEBUG:
+                self.output.add_line("Invalid JSON template")
+            return None
+
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Content-Type': 'application/json'
+        }
+
+        try:
+            response = requests.post(self.irv_url, headers=headers, json=payload, timeout=30)
+            if response.status_code == 200:
+                return response.json()  # Assuming you want to return the data
+            else:
+                if DEBUG:
+                    self.output.add_line(f"GET ticket data failed: {response.status_code} - {response.text}")
+                return None
+        except requests.exceptions.RequestException as e:
+            if DEBUG:
+                self.output.add_line(f"Network error: {str(e)}")
+            return None
 
 
 if __name__ == "__main__" and TEST_RUN:
@@ -127,4 +155,10 @@ if __name__ == "__main__" and TEST_RUN:
     if token:
         athena_client.output.add_line("Token obtained successfully")
 
-        
+        # Test get_ticket_data
+        ticket_data = athena_client.get_ticket_data("IR10107172")
+        if ticket_data:
+            athena_client.output.add_line("Ticket data retrieved:")
+            athena_client.output.add_line(json.dumps(ticket_data, indent=4))
+        else:
+            athena_client.output.add_line("Failed to retrieve ticket data")
