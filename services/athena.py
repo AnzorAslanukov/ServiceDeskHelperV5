@@ -36,6 +36,8 @@ class Athena:
         self.auth_url = os.getenv('ATHENA_AUTH_URL')
         self.irv_url= os.getenv('ATHENA_INCIDENT_VIEW_URL')
         self.ir_url = os.getenv('ATHENA_INCIDENT_URL')
+        self.sr_url = os.getenv('ATHENA_SERVICEREQUEST_URL')
+        self.cr_url = os.getenv('ATHENA_CHANGEREQUEST_URL')
         
         # Get JSON template from environment
         self.json_template = os.getenv('ATHENA_JSON_TEMPLATE')
@@ -153,10 +155,42 @@ class Athena:
             try:
                 response = requests.get(url, headers=headers, timeout=30)
                 if response.status_code == 200:
-                    return response.json()  # Assuming you want to return the data
+                    return response.json()  
                 else:
                     if DEBUG:
                         self.output.add_line(f"Incident ticket data failed: {response.status_code} - {response.text}")
+                    return None
+            except requests.exceptions.RequestException as e:
+                if DEBUG:
+                    self.output.add_line(f"Network error: {str(e)}")
+                return None
+            
+        elif data_type == "service_request":
+            url = f"{self.sr_url}{ticket_number}"
+
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    return response.json()  
+                else:
+                    if DEBUG:
+                        self.output.add_line(f"Service request ticket data failed: {response.status_code} - {response.text}")
+                    return None
+            except requests.exceptions.RequestException as e:
+                if DEBUG:
+                    self.output.add_line(f"Network error: {str(e)}")
+                return None
+            
+        elif data_type == "change_request":
+            url = f"{self.cr_url}{ticket_number}"
+
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    return response.json()  
+                else:
+                    if DEBUG:
+                        self.output.add_line(f"Change request ticket data failed: {response.status_code} - {response.text}")
                     return None
             except requests.exceptions.RequestException as e:
                 if DEBUG:
@@ -179,7 +213,7 @@ if __name__ == "__main__" and TEST_RUN:
         athena_client.output.add_line("Token obtained successfully")
 
         # Test get_ticket_data
-        ticket_data = athena_client.get_ticket_data("IR10107172", data_type="incident")
+        ticket_data = athena_client.get_ticket_data("IR10107171", data_type="incident")
         if ticket_data:
             athena_client.output.add_line("Ticket data retrieved:")
             athena_client.output.add_line(json.dumps(ticket_data, indent=4))

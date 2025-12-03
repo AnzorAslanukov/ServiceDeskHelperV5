@@ -1,0 +1,131 @@
+:root {
+  /* Light mode colors */
+  --bg-color: #ffffff;
+  --text-color: #212529;
+  --sidebar-bg: #f8f9fa;
+  --header-bg: #ffffff;
+  --border-color: #dee2e6;
+  --btn-bg: #007bff;
+  --btn-text: #ffffff;
+  /* Navigation button colors */
+  --search-btn-bg: #007bff;
+  --search-btn-text: #ffffff;
+  --assignment-btn-bg: #28a745;
+  --assignment-btn-text: #ffffff;
+  --assessment-btn-bg: #fd7e14;
+  --assessment-btn-text: #ffffff;
+  --turnover-btn-bg: #6f42c1;
+  --turnover-btn-text: #ffffff;
+}
+
+[data-bs-theme="dark"] {
+  /* Dark mode analogs */
+  --bg-color: #212529;
+  --text-color: #f8f9fa;
+  --sidebar-bg: #343a40;
+  --header-bg: #212529;
+  --border-color: #495057;
+  --btn-bg: #ffc107;
+  --btn-text: #212529;
+  /* Navigation button dark mode colors */
+  --search-btn-bg: #0d6efd;
+  --search-btn-text: #ffffff;
+  --assignment-btn-bg: #198754;
+  --assignment-btn-text: #ffffff;
+  --assessment-btn-bg: #fd7e14;
+  --assessment-btn-text: #ffffff;
+  --turnover-btn-bg: #6f42c1;
+  --turnover-btn-text: #ffffff;
+}
+
+/* Apply theme variables */
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.sidebar {
+  background-color: var(--sidebar-bg);
+  padding: 1rem;
+  border-right: 1px solid var(--border-color);
+  transition: background-color 0.3s;
+}
+
+.main-content {
+  background-color: var(--bg-color);
+  padding: 1rem;
+  transition: background-color 0.3s;
+}
+
+.list-group-item {
+  background-color: inherit;
+  color: inherit;
+  border-color: var(--border-color);
+}
+
+#theme-toggle {
+  background-color: var(--btn-bg);
+  color: var(--btn-text);
+  border: none;
+}
+
+#theme-toggle:hover {
+  opacity: 0.8;
+}
+
+.navigation-buttons .btn {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  border-radius: 5px;
+}
+
+.ticket-search-btn {
+  background-color: var(--search-btn-bg);
+  color: var(--search-btn-text);
+  border: 1px solid var(--search-btn-bg);
+}
+
+.ticket-assignment-btn {
+  background-color: var(--assignment-btn-bg);
+  color: var(--assignment-btn-text);
+  border: 1px solid var(--assignment-btn-bg);
+}
+
+.ticket-assessment-btn {
+  background-color: var(--assessment-btn-bg);
+  color: var(--assessment-btn-text);
+  border: 1px solid var(--assessment-btn-bg);
+}
+
+.turnover-email-btn {
+  background-color: var(--turnover-btn-bg);
+  color: var(--turnover-btn-text);
+  border: 1px solid var(--turnover-btn-bg);
+}
+
+.navigation-buttons .btn:hover {
+  opacity: 0.8;
+  transition: opacity 0.3s;
+}
+
+.theme-btn {
+  aspect-ratio: 1;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border-color);
+  background-color: var(--sidebar-bg);
+  color: var(--text-color);
+  padding: 4px;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+.theme-btn:hover {
+  opacity: 0.8;
+}
+
+#theme-icon {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
