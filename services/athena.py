@@ -113,7 +113,7 @@ class Athena:
 
         return None
 
-    def get_ticket_data(self, ticket_number, data_type="view"):
+    def get_ticket_data(self, ticket_number=None, view=False, conditions=None):
         if not self.token:
             self.token = self.get_token()
             if not self.token:
@@ -123,7 +123,7 @@ class Athena:
             'Authorization': f'Bearer {self.token}'
         }
 
-        if data_type == "view":
+        if view:
             # Replace placeholder
             json_str = self.json_template.replace('{{TICKET_ID}}', ticket_number)
 
@@ -149,58 +149,67 @@ class Athena:
                     self.output.add_line(f"Network error: {str(e)}")
                 return None
 
-        elif data_type == "incident":
-            url = f"{self.ir_url}{ticket_number}"
-
-            try:
-                response = requests.get(url, headers=headers, timeout=30)
-                if response.status_code == 200:
-                    return response.json()  
-                else:
-                    if DEBUG:
-                        self.output.add_line(f"Incident ticket data failed: {response.status_code} - {response.text}")
-                    return None
-            except requests.exceptions.RequestException as e:
-                if DEBUG:
-                    self.output.add_line(f"Network error: {str(e)}")
-                return None
-            
-        elif data_type == "service_request":
-            url = f"{self.sr_url}{ticket_number}"
-
-            try:
-                response = requests.get(url, headers=headers, timeout=30)
-                if response.status_code == 200:
-                    return response.json()  
-                else:
-                    if DEBUG:
-                        self.output.add_line(f"Service request ticket data failed: {response.status_code} - {response.text}")
-                    return None
-            except requests.exceptions.RequestException as e:
-                if DEBUG:
-                    self.output.add_line(f"Network error: {str(e)}")
-                return None
-            
-        elif data_type == "change_request":
-            url = f"{self.cr_url}{ticket_number}"
-
-            try:
-                response = requests.get(url, headers=headers, timeout=30)
-                if response.status_code == 200:
-                    return response.json()  
-                else:
-                    if DEBUG:
-                        self.output.add_line(f"Change request ticket data failed: {response.status_code} - {response.text}")
-                    return None
-            except requests.exceptions.RequestException as e:
-                if DEBUG:
-                    self.output.add_line(f"Network error: {str(e)}")
-                return None
-
         else:
-            if DEBUG:
-                self.output.add_line(f"Unknown data_type: {data_type}")
-            return None
+            # Check if conditions provided with contactMethod filter (only when ticket_number is None)
+            if ticket_number is None and conditions and "contactMethod" in conditions and conditions["contactMethod"]:
+                # Proceed with POST request using filters for contactMethod (ticket number not used for search)
+                # Determine operator based on contactMethodContains flag
+                operator = "contains" if conditions.get("contactMethodContains", False) else "eq"
+                payload = [
+                    {
+                        "condition": "and",
+                        "filters": [
+                            {
+                                "property": "ContactMethod",
+                                "operator": operator,
+                                "value": conditions["contactMethod"]
+                            }
+                        ]
+                    }
+                ]
+
+                headers['Content-Type'] = 'application/json'
+
+                try:
+                    response = requests.post(self.irv_url, headers=headers, json=payload, timeout=120)
+                    if response.status_code == 200:
+                        return response.json()
+                    else:
+                        if DEBUG:
+                            self.output.add_line(f"Filtered ticket data failed: {response.status_code} - {response.text}")
+                        return None
+                except requests.exceptions.RequestException as e:
+                    if DEBUG:
+                        self.output.add_line(f"Network error: {str(e)}")
+                    return None
+
+            else:
+                # Determine ticket type by first two characters (case-insensitive)
+                prefix = ticket_number[:2].upper() if ticket_number else ""
+
+                if prefix == "IR":
+                    url = f"{self.ir_url}{ticket_number}"
+                elif prefix == "SR":
+                    url = f"{self.sr_url}{ticket_number}"
+                elif prefix == "CR":
+                    url = f"{self.cr_url}{ticket_number}"
+                else:
+                    if DEBUG:
+                        self.output.add_line(f"Unknown ticket type prefix: {prefix}")
+                    return None
+
+                try:
+                    response = requests.get(url, headers=headers, timeout=30)
+                    if response.status_code == 200:
+                        return response.json()
+                    else:
+                        if DEBUG:
+                            self.output.add_line(f"{prefix} ticket data failed: {response.status_code} - {response.text}")
+                        return None
+                except requests.exceptions.RequestException as e:
+                    if DEBUG:
+                        self.output.add_line(f"Network error: {str(e)}")
+                    return None
 
 
 if __name__ == "__main__" and TEST_RUN:
@@ -213,7 +222,9 @@ if __name__ == "__main__" and TEST_RUN:
         athena_client.output.add_line("Token obtained successfully")
 
         # Test get_ticket_data
-        ticket_data = athena_client.get_ticket_data("IR10107171", data_type="incident")
+        ticket_data = athena_client.get_ticket_data("IR10107172", view=True)
+        # filters = {"contactMethod":"2156871743"}
+        # ticket_data = athena_client.get_ticket_data(conditions=filters)
         if ticket_data:
             athena_client.output.add_line("Ticket data retrieved:")
             athena_client.output.add_line(json.dumps(ticket_data, indent=4))
