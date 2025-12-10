@@ -222,9 +222,9 @@ if __name__ == "__main__" and TEST_RUN:
         athena_client.output.add_line("Token obtained successfully")
 
         # Test get_ticket_data
-        ticket_data = athena_client.get_ticket_data("IR10107172", view=True)
-        # filters = {"contactMethod":"2156871743"}
-        # ticket_data = athena_client.get_ticket_data(conditions=filters)
+        # ticket_data = athena_client.get_ticket_data("IR10107172", view=True)
+        filters = {"contactMethod":"2156871743"}
+        ticket_data = athena_client.get_ticket_data(conditions=filters)
         if ticket_data:
             athena_client.output.add_line("Ticket data retrieved:")
             athena_client.output.add_line(json.dumps(ticket_data, indent=4))

@@ -11,17 +11,34 @@ class ParseJson:
 
     def parse_object(self, json_obj):
         """
-        Generic method to parse a JSON object into readable format.
+        Generic method to parse a JSON object into human-legible formats.
         json_obj: The JSON object to parse
         Returns: Parsed human-readable representation (to be implemented later)
         """
-        # Placeholder for now - will be expanded to handle different JSON formats
-        if isinstance(json_obj, dict):
-            return self._format_dict(json_obj, indent=0)
-        elif isinstance(json_obj, list):
-            return self._format_list(json_obj, indent=0)
+        # Handle query result with columns
+        if isinstance(json_obj, dict) and 'data' in json_obj:
+            columns = json_obj.get('columns', [])
+            structured_data = []
+            for row in json_obj.get('data', []):
+                if not columns and row:
+                    # Use actual field names for the 33 fields
+                    default_fields = ['TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title', 'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName', 'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area', 'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments', 'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change']
+                    columns = default_fields[:len(row)]  # In case fewer fields, but assume 33
+                row_dict = dict(zip(columns, row))
+                structured_data.append(row_dict)
+            return self._format_dict({
+                'status': json_obj.get('status'),
+                'count': json_obj.get('count'),
+                'data': structured_data
+            }, indent=0)
         else:
-            return str(json_obj)
+            # Default handling
+            if isinstance(json_obj, dict):
+                return self._format_dict(json_obj, indent=0)
+            elif isinstance(json_obj, list):
+                return self._format_list(json_obj, indent=0)
+            else:
+                return str(json_obj)
 
     def _format_dict(self, data, indent=0):
         """
@@ -37,7 +54,10 @@ class ParseJson:
                 lines.append(f"{prefix}{key}:")
                 lines.append(self._format_list(value, indent + 1))
             else:
-                lines.append(f"{prefix}{key}: {value}")
+                val_str = str(value)
+                if isinstance(value, str) and len(val_str) > 100:
+                    val_str = val_str[:100] + "..."
+                lines.append(f"{prefix}{key}: {val_str}")
         return "\n".join(lines)
 
     def _format_list(self, data, indent=0):
