@@ -1,3 +1,6 @@
+import json
+
+
 class ParseJson:
     """
     Class for parsing JSON outputs from Athena API into human-legible formats.
@@ -39,6 +42,18 @@ class ParseJson:
                 return self._format_list(json_obj, indent=0)
             else:
                 return str(json_obj)
+
+    def write_embedding_to_jsonl(self, ticket_id, ticket_embedding, filename='ir_embeddings.jsonl'):
+        """
+        Append a single embedding record to the JSON Lines file.
+        Creates the file if it doesn't exist.
+        """
+        with open(filename, 'a') as f:
+            record = {
+                "id": ticket_id,
+                "ticket_embedding": ticket_embedding
+            }
+            f.write(json.dumps(record) + '\n')
 
     def _format_dict(self, data, indent=0):
         """

@@ -16,6 +16,11 @@
   --assessment-btn-text: #ffffff;
   --turnover-btn-bg: #6f42c1;
   --turnover-btn-text: #ffffff;
+  /* Phone button colors */
+  --phone-btn-bg-on: #007bff;
+  --phone-btn-bg-off: #adb5bd;
+  --phone-btn-icon-on: #ffffff;
+  --phone-btn-icon-off: #6c757d;
 }
 
 [data-bs-theme="dark"] {
@@ -36,6 +41,11 @@
   --assessment-btn-text: #ffffff;
   --turnover-btn-bg: #6f42c1;
   --turnover-btn-text: #ffffff;
+  /* Phone button dark mode colors */
+  --phone-btn-bg-on: #0d6efd;
+  --phone-btn-bg-off: #495057;
+  --phone-btn-icon-on: #ffffff;
+  --phone-btn-icon-off: #adb5bd;
 }
 
 /* Apply theme variables */
@@ -125,6 +135,68 @@ body {
 }
 
 #theme-icon {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.phone-btn {
+  aspect-ratio: 1;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border-color);
+  background-color: var(--phone-btn-bg-on); /* Default to ON */
+  color: var(--phone-btn-icon-on);
+  padding: 8px; /* Slightly larger than theme-btn for better visibility */
+  border-radius: 50%;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.phone-btn.off {
+  background-color: var(--phone-btn-bg-off);
+  color: var(--phone-btn-icon-off);
+}
+
+.phone-btn:hover {
+  opacity: 0.8;
+}
+
+.phone-btn:active {
+  background-color: #e9ecef !important;
+}
+
+.abc-btn {
+  aspect-ratio: 1;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border-color);
+  background-color: var(--phone-btn-bg-on); /* Use same colors as phone for consistency */
+  color: var(--phone-btn-icon-on);
+  padding: 8px;
+  border-radius: 50%;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.abc-btn.off {
+  background-color: var(--phone-btn-bg-off);
+  color: var(--phone-btn-icon-off);
+}
+
+.abc-btn:hover {
+  opacity: 0.8;
+}
+
+.abc-btn:active {
+  background-color: #e9ecef !important;
+}
+
+#phone-icon {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+#abc-icon {
   width: 100%;
   height: auto;
   object-fit: contain;

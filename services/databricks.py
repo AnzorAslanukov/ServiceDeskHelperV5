@@ -14,7 +14,7 @@ from parse_json import ParseJson
 load_dotenv()
 
 DEBUG = True  # Global debug setting for print statements
-TEST_RUN = True  # Set to True to enable the test section when running the file
+TEST_RUN = False  # Set to True to enable the test section when running the file
 
 class Databricks:
 
@@ -110,8 +110,9 @@ class Databricks:
                 self.output.add_line(f"Unsupported query type: {type(query)}")
             return None
 
-        # Apply max_results limit
-        sql_query += f" LIMIT {max_results}"
+        # Apply max_results limit only if not already present
+        if "LIMIT" not in sql_query.upper():
+            sql_query += f" LIMIT {max_results}"
 
         # API endpoint for executing SQL statements
         execute_url = f"https://{self.server_hostname}/api/2.0/sql/statements"
@@ -277,8 +278,9 @@ if __name__ == "__main__" and TEST_RUN:
         exit(1)
 
     # Template query: Search by substring in Description
-    search_substring = "Issues with Caregility"
-    example_query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Description LIKE '%{search_substring}%';"
+    # search_substring = "Issues with Caregility"
+    # example_query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Description LIKE '%{search_substring}%';"
+    example_query = "SELECT COUNT(*) FROM prepared.ticketing.athena_tickets;"
     result = databricks_client.execute_sql_query(example_query)
     parsed_result = ParseJson().parse_object(result)
     databricks_client.output.add_line(parsed_result)

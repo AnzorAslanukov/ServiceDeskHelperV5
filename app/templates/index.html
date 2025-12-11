@@ -27,10 +27,10 @@
                 </div>
                 <h5>Navigation</h5>
                 <div class="navigation-buttons">
-                    <button type="button" class="btn btn-outline-secondary ticket-search-btn">Ticket Search</button>
-                    <button type="button" class="btn btn-outline-secondary ticket-assignment-btn">Ticket Assignment</button>
-                    <button type="button" class="btn btn-outline-secondary ticket-assessment-btn">Ticket Assessment</button>
-                    <button type="button" class="btn btn-outline-secondary turnover-email-btn">Turnover Email</button>
+                    <button type="button" class="btn btn-outline-secondary ticket-search-btn" id="ticket-search-nav-btn">Ticket Search</button>
+                    <button type="button" class="btn btn-outline-secondary ticket-assignment-btn" id="ticket-assignment-nav-btn">Ticket Assignment</button>
+                    <button type="button" class="btn btn-outline-secondary ticket-assessment-btn" id="ticket-assessment-nav-btn">Ticket Assessment</button>
+                    <button type="button" class="btn btn-outline-secondary turnover-email-btn" id="turnover-email-nav-btn">Turnover Email</button>
                     <div class="d-flex justify-content-center col-md-2 offset-lg-5">
                         <button id="theme-toggle" class="btn theme-btn rounded-circle" aria-label="Toggle Theme">
                             <img id="theme-icon" src="{{ url_for('static', filename='images/light_mode.svg') }}" alt="Light Mode" class="img-fluid">
@@ -40,9 +40,17 @@
             </div>
             <div class="col-md-10 main-content">
                 <div class="input-group mb-4">
-                    <input type="search" class="form-control" placeholder="Search tickets..." aria-label="Search">
-                    <button class="btn btn-outline-secondary" type="button" aria-label="Search">
+                    <input type="search" id="ticket-search-input" class="form-control" placeholder="Search tickets by phone number." aria-label="Search">
+                    <button class="btn btn-outline-secondary" id="ticket-search-button" type="button" aria-label="Search">
                         <i class="bi bi-search"></i>
+                    </button>
+                </div>
+                <div class="d-flex justify-content-center align-items-center mb-4">
+                    <button id="phone-toggle" class="btn phone-btn rounded-circle" aria-label="Phone Toggle">
+                        <img id="phone-icon" src="{{ url_for('static', filename='images/phone_icon_on_light.svg') }}" alt="Phone Toggle" class="img-fluid">
+                    </button>
+                    <button id="abc-toggle" class="btn abc-btn rounded-circle" aria-label="ABC Toggle" style="margin-left: 0.5rem;">
+                        <img id="abc-icon" src="{{ url_for('static', filename='images/abc_icon_off_light.svg') }}" alt="ABC Toggle" class="img-fluid">
                     </button>
                 </div>
                 <div id="content-area" class="mt-4">
