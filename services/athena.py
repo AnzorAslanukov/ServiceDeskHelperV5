@@ -13,7 +13,7 @@ from parse_json import ParseJson
 load_dotenv()
 
 DEBUG = True  # Global debug setting for print statements
-TEST_RUN = True  # Set to True to enable the test section when running the file
+TEST_RUN = False  # Set to True to enable the test section when running the file
 PROCESS_INDICATORS = True  # Enable/disable process loading indicator print statements
 
 class Athena:
