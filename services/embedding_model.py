@@ -15,7 +15,7 @@ from output import Output
 load_dotenv()
 
 DEBUG = True  # Global debug setting for print statements
-TEST_RUN = True  # Set to True to enable test section when running the file
+TEST_RUN = False  # Set to True to enable test section when running the file
 
 class EmbeddingModel:
     """

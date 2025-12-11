@@ -13,7 +13,7 @@ from parse_json import ParseJson
 
 load_dotenv()
 
-DEBUG = False  # Global debug setting for print statements
+DEBUG = True  # Global debug setting for print statements
 TEST_RUN = False  # Set to True to enable the test section when running the file
 
 class Databricks:

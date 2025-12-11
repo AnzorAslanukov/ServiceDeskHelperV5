@@ -21,6 +21,11 @@
   --phone-btn-bg-off: #adb5bd;
   --phone-btn-icon-on: #ffffff;
   --phone-btn-icon-off: #6c757d;
+  /* Semantic button colors */
+  --semantic-btn-bg-on: #007bff;
+  --semantic-btn-bg-off: #adb5bd;
+  --semantic-btn-icon-on: #ffffff;
+  --semantic-btn-icon-off: #6c757d;
 }
 
 [data-bs-theme="dark"] {
@@ -46,6 +51,11 @@
   --phone-btn-bg-off: #495057;
   --phone-btn-icon-on: #ffffff;
   --phone-btn-icon-off: #adb5bd;
+  /* Semantic button dark mode colors */
+  --semantic-btn-bg-on: #0d6efd;
+  --semantic-btn-bg-off: #495057;
+  --semantic-btn-icon-on: #ffffff;
+  --semantic-btn-icon-off: #adb5bd;
 }
 
 /* Apply theme variables */
@@ -190,6 +200,31 @@ body {
   background-color: #e9ecef !important;
 }
 
+.semantic-btn {
+  aspect-ratio: 1;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border-color);
+  background-color: var(--semantic-btn-bg-on);
+  color: var(--semantic-btn-icon-on);
+  padding: 8px;
+  border-radius: 50%;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.semantic-btn.off {
+  background-color: var(--semantic-btn-bg-off);
+  color: var(--semantic-btn-icon-off);
+}
+
+.semantic-btn:hover {
+  opacity: 0.8;
+}
+
+.semantic-btn:active {
+  background-color: #e9ecef !important;
+}
+
 #phone-icon {
   width: 100%;
   height: auto;
@@ -197,6 +232,12 @@ body {
 }
 
 #match-icon {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+#semantic-icon {
   width: 100%;
   height: auto;
   object-fit: contain;

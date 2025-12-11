@@ -1,4 +1,7 @@
 from flask import Flask, render_template, send_from_directory, request, jsonify
+import json
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 from services.athena import Athena
 from services.databricks import Databricks
 from services.embedding_model import EmbeddingModel
@@ -16,40 +19,71 @@ def index():
 def semantic_search(description, max_results=5):
     """
     Perform semantic search by embedding the description and finding
-    similar ticket vectors in Databricks, then retrieving full details from Athena.
+    similar ticket vectors in ir_embeddings.jsonl file, then retrieving full details from Athena.
     """
+    from services.output import Output
+    output = Output()
+
+    output.add_line(f"Starting semantic search for: '{description}'")
+
     emb_model = EmbeddingModel()
     search_embedding = emb_model.get_embedding(description)
 
     if not search_embedding:
+        output.add_line("Embedding generation failed, returned empty")
         return []
 
-    # Convert embedding to SQL array format (float values)
-    embedding_str = ','.join([str(float(x)) for x in search_embedding])
-    sql_array = f"ARRAY[{embedding_str}]"
+    output.add_line(f"Generated embedding with {len(search_embedding)} dimensions")
 
-    # Vector similarity query using cosine distance
-    query = f"""
-        SELECT id, array_distance(embedding, {sql_array}) as distance
-        FROM scratchpad.aslanuka.ir_embeddings
-        ORDER BY distance ASC
-        LIMIT {max_results}
-    """
+    # Load embeddings from jsonl file
+    embeddings_file = 'ir_embeddings.jsonl'
+    ids_and_embeddings = []
 
-    db = Databricks()
-    result = db.execute_sql_query(query)
+    try:
+        with open(embeddings_file, 'r') as f:
+            for line_num, line in enumerate(f):
+                obj = json.loads(line.strip())
+                ticket_id = obj['id']
+                ticket_embedding = np.array(obj['ticket_embedding'])
+                ids_and_embeddings.append((ticket_id, ticket_embedding))
 
-    if not result or result.get('status') != 'success' or not result.get('data'):
+        output.add_line(f"Loaded {len(ids_and_embeddings)} ticket embeddings from {embeddings_file}")
+
+    except FileNotFoundError:
+        output.add_line(f"Error: {embeddings_file} not found")
+        return []
+    except Exception as e:
+        output.add_line(f"Error loading embeddings: {str(e)}")
         return []
 
-    # Extract top ticket IDs from similarity search
-    ticket_ids = [row[0] for row in result['data']]
+    if not ids_and_embeddings:
+        output.add_line("No embeddings loaded")
+        return []
+
+    # Prepare search embedding
+    search_emb = np.array(search_embedding).reshape(1, -1)
+
+    # Prepare all ticket embeddings
+    ticket_embs = np.array([emb for _, emb in ids_and_embeddings])
+
+    # Compute cosine similarities
+    output.add_line("Computing cosine similarities...")
+    similarities = cosine_similarity(search_emb, ticket_embs)[0]
+
+    # Get top max_results indices sorted by similarity descending
+    top_indices = np.argsort(similarities)[-max_results:][::-1]
+
+    top_ticket_ids = [ids_and_embeddings[i][0] for i in top_indices]
+    top_similarities = [similarities[i] for i in top_indices]
+
+    output.add_line(f"Top {len(top_ticket_ids)} similar tickets: {top_ticket_ids}")
+    output.add_line(f"Similarities: {[f'{s:.4f}' for s in top_similarities]}")
 
     # Retrieve full ticket details from Athena
     athena = Athena()
     tickets = []
 
-    for ticket_id in ticket_ids:
+    for ticket_id in top_ticket_ids:
         try:
             # Get detailed view of each ticket
             detail_result = athena.get_ticket_data(ticket_number=ticket_id, view=True)
@@ -73,6 +107,7 @@ def semantic_search(description, max_results=5):
                 'description': f'Error retrieving ticket: {str(e)}'
             })
 
+    output.add_line(f"Retrieved {len(tickets)} ticket details from Athena")
     return tickets
 
 def exact_description_search(description, max_results=5):
@@ -147,7 +182,7 @@ def search_tickets():
         search_value = data['description']
         try:
             tickets = exact_description_search(search_value, max_results=5)
-            
+
             # Return Athena-like response format
             response = {
                 'currentPage': 1,
@@ -157,11 +192,30 @@ def search_tickets():
                 'result': tickets
             }
             return jsonify(response)
-                
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    elif 'semanticDescription' in data:
+        # Semantic description search using vector similarity
+        search_value = data['semanticDescription']
+        try:
+            tickets = semantic_search(search_value, max_results=5)
+
+            # Return Athena-like response format
+            response = {
+                'currentPage': 1,
+                'resultCount': len(tickets),
+                'pageSize': 5,
+                'hasMoreResults': False,
+                'result': tickets
+            }
+            return jsonify(response)
+
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     else:
-        return jsonify({'error': 'Missing search parameter (contactMethod or description)'}), 400
+        return jsonify({'error': 'Missing search parameter (contactMethod, description, or semanticDescription)'}), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)

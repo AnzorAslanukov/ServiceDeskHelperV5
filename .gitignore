@@ -1,4 +1,6 @@
 .env
 output.txt
 run_embedding.py
+ir_embeddings.jsonl
+
 /misc

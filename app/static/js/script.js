@@ -84,6 +84,49 @@ class MatchToggle {
   }
 }
 
+class SemanticToggle {
+  constructor(isSemanticOn, themeIsDark) {
+    this.isSemanticOn = isSemanticOn;
+    this.applyIcon(themeIsDark);
+    this.savePreference();
+  }
+
+  applyIcon(themeIsDark) {
+    const icon = document.getElementById('semantic-icon');
+    if (icon) {
+      const state = this.isSemanticOn ? 'on' : 'off';
+      const theme = themeIsDark ? 'dark' : 'light';
+      icon.src = '/static/images/abc_icon_' + state + '_' + theme + '.svg';
+      icon.alt = this.isSemanticOn ? 'Switch to Off' : 'Switch to On';
+    }
+    // Update CSS class
+    const btn = document.getElementById('semantic-toggle');
+    if (btn) {
+      if (this.isSemanticOn) {
+        btn.classList.remove('off');
+      } else {
+        btn.classList.add('off');
+      }
+    }
+  }
+
+  savePreference() {
+    localStorage.setItem('semanticOn', this.isSemanticOn ? 'true' : 'false');
+  }
+
+  static loadPreference() {
+    const saved = localStorage.getItem('semanticOn');
+    const isOn = saved === 'true'; // default false
+    const themeIsDark = SemanticToggle.currentThemeIsDark();
+    return new SemanticToggle(isOn, themeIsDark);
+  }
+
+  static currentThemeIsDark() {
+    const savedTheme = localStorage.getItem('theme');
+    return savedTheme === 'dark';
+  }
+}
+
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -184,16 +227,18 @@ function displaySearchResults(data, searchValue, searchType) {
   });
 }
 
-// Initialize phone, and match on page load
+// Initialize phone, match, and semantic on page load
 document.addEventListener('DOMContentLoaded', function() {
   const phone = PhoneToggle.loadPreference();
   const match = MatchToggle.loadPreference();
+  const semantic = SemanticToggle.loadPreference();
 
   // Listen for theme changes to update icons
   document.addEventListener('themeChanged', function(e) {
     const isDark = e.detail.isDark;
     phone.applyIcon(isDark);
     match.applyIcon(isDark);
+    semantic.applyIcon(isDark);
   });
 
   // Phone toggle button functionality
@@ -204,15 +249,18 @@ document.addEventListener('DOMContentLoaded', function() {
         // Already on, do nothing
         return;
       } else {
-        // Turn on phone, turn off match
+        // Turn on phone, turn off match and semantic
         phone.isPhoneOn = true;
         match.isMatchOn = false;
+        semantic.isSemanticOn = false;
         // Apply changes
         phone.applyIcon(PhoneToggle.currentThemeIsDark());
         match.applyIcon(MatchToggle.currentThemeIsDark());
+        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
         // Save preferences
         phone.savePreference();
         match.savePreference();
+        semantic.savePreference();
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
@@ -230,19 +278,51 @@ document.addEventListener('DOMContentLoaded', function() {
         // Already on, do nothing
         return;
       } else {
-        // Turn on match, turn off phone
+        // Turn on match, turn off phone and semantic
         match.isMatchOn = true;
         phone.isPhoneOn = false;
+        semantic.isSemanticOn = false;
         // Apply changes
         match.applyIcon(MatchToggle.currentThemeIsDark());
         phone.applyIcon(PhoneToggle.currentThemeIsDark());
+        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
         // Save preferences
         match.savePreference();
         phone.savePreference();
+        semantic.savePreference();
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
           searchInput.placeholder = 'Search tickets by exact sentence match.';
+        }
+      }
+    });
+  }
+
+  // Semantic toggle button functionality
+  const semanticButton = document.getElementById('semantic-toggle');
+  if (semanticButton) {
+    semanticButton.addEventListener('click', function() {
+      if (semantic.isSemanticOn) {
+        // Already on, do nothing
+        return;
+      } else {
+        // Turn on semantic, turn off phone and match
+        semantic.isSemanticOn = true;
+        phone.isPhoneOn = false;
+        match.isMatchOn = false;
+        // Apply changes
+        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
+        phone.applyIcon(PhoneToggle.currentThemeIsDark());
+        match.applyIcon(MatchToggle.currentThemeIsDark());
+        // Save preferences
+        semantic.savePreference();
+        phone.savePreference();
+        match.savePreference();
+        // Update search placeholder
+        const searchInput = document.getElementById('ticket-search-input');
+        if (searchInput) {
+          searchInput.placeholder = 'Search tickets by semantic description.';
         }
       }
     });
@@ -267,10 +347,22 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('content-area').innerHTML = '<div class="d-flex justify-content-center my-4"><div class="spinner-grow text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
 
       try {
-        const bodyObj = phone.isPhoneOn 
-          ? { contactMethod: searchValue, contains: true }
-          : { description: searchValue, contains: true };
-          
+        let bodyObj, searchType;
+        if (phone.isPhoneOn) {
+          bodyObj = { contactMethod: searchValue, contains: true };
+          searchType = 'phone number';
+        } else if (match.isMatchOn) {
+          bodyObj = { description: searchValue, contains: true };
+          searchType = 'exact match';
+        } else if (semantic.isSemanticOn) {
+          bodyObj = { semanticDescription: searchValue };
+          searchType = 'semantic similarity';
+        } else {
+          // Default to match if none selected (though mutually exclusive)
+          bodyObj = { description: searchValue, contains: true };
+          searchType = 'description';
+        }
+
         const response = await fetch('/api/search-tickets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -282,7 +374,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const data = await response.json();
-        const searchType = phone.isPhoneOn ? 'phone number' : 'description';
         displaySearchResults(data, searchValue, searchType);
       } catch (error) {
         document.getElementById('content-area').innerHTML =
