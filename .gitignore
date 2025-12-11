@@ -1,3 +1,4 @@
 .env
 output.txt
 run_embedding.py
+/misc

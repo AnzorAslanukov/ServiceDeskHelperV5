@@ -44,8 +44,11 @@ document.addEventListener('DOMContentLoaded', function() {
       const newTheme = new Theme(!theme.isDarkMode);
       // Update the current theme reference
       theme.isDarkMode = newTheme.isDarkMode;
-      // Dispatch event for other scripts to update icons
-      document.dispatchEvent(new CustomEvent('themeChanged', { detail: { isDark: theme.isDarkMode } }));
+    // Dispatch event for other scripts to update icons
+    document.dispatchEvent(new CustomEvent('themeChanged', { detail: { isDark: theme.isDarkMode } }));
+
+    // Note: Since match.js is loaded after theme.js, it won't have the match instance here.
+    // The themeChanged event listener in script.js will handle updating match icons.
     });
   }
 });

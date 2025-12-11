@@ -165,7 +165,7 @@ body {
   background-color: #e9ecef !important;
 }
 
-.abc-btn {
+.match-btn {
   aspect-ratio: 1;
   width: auto;
   height: auto;
@@ -177,16 +177,16 @@ body {
   transition: background-color 0.3s, color 0.3s;
 }
 
-.abc-btn.off {
+.match-btn.off {
   background-color: var(--phone-btn-bg-off);
   color: var(--phone-btn-icon-off);
 }
 
-.abc-btn:hover {
+.match-btn:hover {
   opacity: 0.8;
 }
 
-.abc-btn:active {
+.match-btn:active {
   background-color: #e9ecef !important;
 }
 
@@ -196,7 +196,7 @@ body {
   object-fit: contain;
 }
 
-#abc-icon {
+#match-icon {
   width: 100%;
   height: auto;
   object-fit: contain;

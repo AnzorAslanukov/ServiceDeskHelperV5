@@ -13,7 +13,7 @@ from parse_json import ParseJson
 
 load_dotenv()
 
-DEBUG = True  # Global debug setting for print statements
+DEBUG = False  # Global debug setting for print statements
 TEST_RUN = False  # Set to True to enable the test section when running the file
 
 class Databricks:
@@ -280,7 +280,8 @@ if __name__ == "__main__" and TEST_RUN:
     # Template query: Search by substring in Description
     # search_substring = "Issues with Caregility"
     # example_query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Description LIKE '%{search_substring}%';"
-    example_query = "SELECT COUNT(*) FROM prepared.ticketing.athena_tickets;"
+    example_query = "SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ('IR4964858', 'IR4971857');"
     result = databricks_client.execute_sql_query(example_query)
+    print(result)
     parsed_result = ParseJson().parse_object(result)
     databricks_client.output.add_line(parsed_result)

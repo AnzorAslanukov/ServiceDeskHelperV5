@@ -41,25 +41,25 @@ class PhoneToggle {
   }
 }
 
-class ABCToggle {
-  constructor(isABCOn, themeIsDark) {
-    this.isABCOn = isABCOn;
+class MatchToggle {
+  constructor(isMatchOn, themeIsDark) {
+    this.isMatchOn = isMatchOn;
     this.applyIcon(themeIsDark);
     this.savePreference();
   }
 
   applyIcon(themeIsDark) {
-    const icon = document.getElementById('abc-icon');
+    const icon = document.getElementById('match-icon');
     if (icon) {
-      const state = this.isABCOn ? 'on' : 'off';
+      const state = this.isMatchOn ? 'on' : 'off';
       const theme = themeIsDark ? 'dark' : 'light';
-      icon.src = '/static/images/abc_icon_' + state + '_' + theme + '.svg';
-      icon.alt = this.isABCOn ? 'Switch to Off' : 'Switch to On';
+      icon.src = '/static/images/sentence_match_icon_' + state + '_' + theme + '.svg';
+      icon.alt = this.isMatchOn ? 'Switch to Off' : 'Switch to On';
     }
     // Update CSS class
-    const btn = document.getElementById('abc-toggle');
+    const btn = document.getElementById('match-toggle');
     if (btn) {
-      if (this.isABCOn) {
+      if (this.isMatchOn) {
         btn.classList.remove('off');
       } else {
         btn.classList.add('off');
@@ -68,14 +68,14 @@ class ABCToggle {
   }
 
   savePreference() {
-    localStorage.setItem('abcOn', this.isABCOn ? 'true' : 'false');
+    localStorage.setItem('matchOn', this.isMatchOn ? 'true' : 'false');
   }
 
   static loadPreference() {
-    const saved = localStorage.getItem('abcOn');
+    const saved = localStorage.getItem('matchOn');
     const isOn = saved === 'true'; // default false
-    const themeIsDark = ABCToggle.currentThemeIsDark();
-    return new ABCToggle(isOn, themeIsDark);
+    const themeIsDark = MatchToggle.currentThemeIsDark();
+    return new MatchToggle(isOn, themeIsDark);
   }
 
   static currentThemeIsDark() {
@@ -84,9 +84,24 @@ class ABCToggle {
   }
 }
 
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    // Fallback for HTTP contexts
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    textArea.focus();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+  }
+}
+
 async function handleCopy(ticketId, button) {
   try {
-    await navigator.clipboard.writeText(ticketId);
+    await copyToClipboard(ticketId);
 
     // Hide tooltip immediately after successful copy
     const tooltip = bootstrap.Tooltip.getInstance(button);
@@ -110,11 +125,11 @@ async function handleCopy(ticketId, button) {
   event?.stopPropagation();
 }
 
-function displaySearchResults(data, phoneNumber) {
+function displaySearchResults(data, searchValue, searchType) {
   const container = document.getElementById('content-area');
-  
+
   // Result counter
-  let html = `<h4 class="mb-3">Found ${data.resultCount} result(s) for phone number ${phoneNumber}</h4>`;
+  let html = `<h4 class="mb-3">Found ${data.resultCount} result(s) for ${searchType} "${searchValue}"</h4>`;
   
   // Accordion for tickets
   html += '<div class="accordion" id="ticketsAccordion">';
@@ -169,16 +184,16 @@ function displaySearchResults(data, phoneNumber) {
   });
 }
 
-// Initialize phone, and abc on page load
+// Initialize phone, and match on page load
 document.addEventListener('DOMContentLoaded', function() {
   const phone = PhoneToggle.loadPreference();
-  const abc = ABCToggle.loadPreference();
+  const match = MatchToggle.loadPreference();
 
   // Listen for theme changes to update icons
   document.addEventListener('themeChanged', function(e) {
     const isDark = e.detail.isDark;
     phone.applyIcon(isDark);
-    abc.applyIcon(isDark);
+    match.applyIcon(isDark);
   });
 
   // Phone toggle button functionality
@@ -189,15 +204,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Already on, do nothing
         return;
       } else {
-        // Turn on phone, turn off abc
+        // Turn on phone, turn off match
         phone.isPhoneOn = true;
-        abc.isABCOn = false;
+        match.isMatchOn = false;
         // Apply changes
         phone.applyIcon(PhoneToggle.currentThemeIsDark());
-        abc.applyIcon(ABCToggle.currentThemeIsDark());
+        match.applyIcon(MatchToggle.currentThemeIsDark());
         // Save preferences
         phone.savePreference();
-        abc.savePreference();
+        match.savePreference();
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
@@ -207,27 +222,27 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // ABC toggle button functionality
-  const abcButton = document.getElementById('abc-toggle');
-  if (abcButton) {
-    abcButton.addEventListener('click', function() {
-      if (abc.isABCOn) {
+  // Match toggle button functionality
+  const matchButton = document.getElementById('match-toggle');
+  if (matchButton) {
+    matchButton.addEventListener('click', function() {
+      if (match.isMatchOn) {
         // Already on, do nothing
         return;
       } else {
-        // Turn on abc, turn off phone
-        abc.isABCOn = true;
+        // Turn on match, turn off phone
+        match.isMatchOn = true;
         phone.isPhoneOn = false;
         // Apply changes
-        abc.applyIcon(ABCToggle.currentThemeIsDark());
+        match.applyIcon(MatchToggle.currentThemeIsDark());
         phone.applyIcon(PhoneToggle.currentThemeIsDark());
         // Save preferences
-        abc.savePreference();
+        match.savePreference();
         phone.savePreference();
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
-          searchInput.placeholder = 'Search tickets by description sentence.';
+          searchInput.placeholder = 'Search tickets by exact sentence match.';
         }
       }
     });
@@ -237,15 +252,10 @@ document.addEventListener('DOMContentLoaded', function() {
   const searchButton = document.getElementById('ticket-search-button');
   if (searchButton) {
     searchButton.addEventListener('click', async function() {
-      if (!phone.isPhoneOn) {
-        alert('Please select phone search mode first');
-        return;
-      }
-
       const searchInputElement = document.getElementById('ticket-search-input');
       const searchValue = searchInputElement.value.trim();
       if (!searchValue) {
-        alert('Please enter a phone number');
+        alert('Please enter search text');
         return;
       }
 
@@ -257,10 +267,14 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('content-area').innerHTML = '<div class="d-flex justify-content-center my-4"><div class="spinner-grow text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
 
       try {
+        const bodyObj = phone.isPhoneOn 
+          ? { contactMethod: searchValue, contains: true }
+          : { description: searchValue, contains: true };
+          
         const response = await fetch('/api/search-tickets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contactMethod: searchValue, contains: true })
+          body: JSON.stringify(bodyObj)
         });
 
         if (!response.ok) {
@@ -268,7 +282,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const data = await response.json();
-        displaySearchResults(data, searchValue);
+        const searchType = phone.isPhoneOn ? 'phone number' : 'description';
+        displaySearchResults(data, searchValue, searchType);
       } catch (error) {
         document.getElementById('content-area').innerHTML =
           '<div class="alert alert-danger">Error searching tickets: ' + error.message + '</div>';
