@@ -209,6 +209,10 @@ function displaySearchResults(data, searchValue, searchType) {
                 <p><strong>Location:</strong> ${ticket.locationValue || 'N/A'}</p>
                 <p><strong>Source:</strong> ${ticket.sourceValue || 'N/A'}</p>
                 <p><strong>Support Group:</strong> ${ticket.supportGroupValue || 'N/A'}</p>
+                ${searchType === 'phone number'
+                  ? `<p><strong>Contact Method:</strong> ${ticket.contactMethod || 'N/A'}</p>`
+                  : `<p><strong>Resolution Notes:</strong> ${ticket.resolutionNotes || 'N/A'}</p>`
+                }
               </div>
             </div>
           </div>

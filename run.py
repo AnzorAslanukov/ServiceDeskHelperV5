@@ -149,7 +149,8 @@ def exact_description_search(description, max_results=5):
             'completedDate': ticket_dict.get('ResolvedDate'),
             'locationValue': ticket_dict.get('Location'),
             'sourceValue': ticket_dict.get('Source'),
-            'supportGroupValue': ticket_dict.get('SupportGroup')
+            'supportGroupValue': ticket_dict.get('SupportGroup'),
+            'resolutionNotes': ticket_dict.get('ResolutionNotes')
         }
         tickets.append(ticket)
 
