@@ -19,7 +19,7 @@ def index():
 def semantic_search(description, max_results=5):
     """
     Perform semantic search by embedding the description and finding
-    similar ticket vectors in ir_embeddings.jsonl file, then retrieving full details from Athena.
+    similar ticket vectors in ir_embeddings.jsonl file, then retrieving full details from Databricks.
     """
     from services.output import Output
     output = Output()
@@ -79,35 +79,49 @@ def semantic_search(description, max_results=5):
     output.add_line(f"Top {len(top_ticket_ids)} similar tickets: {top_ticket_ids}")
     output.add_line(f"Similarities: {[f'{s:.4f}' for s in top_similarities]}")
 
-    # Retrieve full ticket details from Athena
-    athena = Athena()
+    # Retrieve full ticket details from Databricks (same as exact_description_search)
+    ids_string = ','.join(f"'{id}'" for id in top_ticket_ids)
+    query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ({ids_string})"
+
+    db = Databricks()
+    result = db.execute_sql_query(query)
+
+    if not result or result.get('status') != 'success' or not result.get('data'):
+        output.add_line("No ticket details retrieved from Databricks")
+        return []
+
+    # Define column names based on the expected order from Databricks
+    col_names = [
+        'TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title',
+        'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName',
+        'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area',
+        'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments',
+        'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
+    ]
+
     tickets = []
+    for row in result['data']:
+        ticket_dict = dict(zip(col_names, row))
 
-    for ticket_id in top_ticket_ids:
-        try:
-            # Get detailed view of each ticket
-            detail_result = athena.get_ticket_data(ticket_number=ticket_id, view=True)
+        # Map to expected ticket format (same as exact_description_search)
+        ticket = {
+            'id': ticket_dict.get('Id'),
+            'title': ticket_dict.get('Title'),
+            'description': ticket_dict.get('Description'),
+            'statusValue': ticket_dict.get('Status'),
+            'priorityValue': ticket_dict.get('Priority'),
+            'assignedTo_DisplayName': ticket_dict.get('AssignedToUserName', ''),
+            'affectedUser_DisplayName': ticket_dict.get('AffectedUserName', ''),
+            'createdDate': ticket_dict.get('CreatedDate'),
+            'completedDate': ticket_dict.get('ResolvedDate'),
+            'locationValue': ticket_dict.get('Location'),
+            'sourceValue': ticket_dict.get('Source'),
+            'supportGroupValue': ticket_dict.get('SupportGroup'),
+            'resolutionNotes': ticket_dict.get('ResolutionNotes')
+        }
+        tickets.append(ticket)
 
-            if detail_result and 'result' in detail_result and detail_result['result']:
-                # Assuming Athena returns similar structure to conditions search
-                ticket = detail_result['result'][0]  # First result
-                tickets.append(ticket)
-            else:
-                # Fallback if details not available
-                tickets.append({
-                    'id': ticket_id,
-                    'title': f'Ticket {ticket_id} (details unavailable)',
-                    'description': 'Could not retrieve ticket details.'
-                })
-        except Exception as e:
-            # Continue with partial results
-            tickets.append({
-                'id': ticket_id,
-                'title': f'Ticket {ticket_id} (error loading details)',
-                'description': f'Error retrieving ticket: {str(e)}'
-            })
-
-    output.add_line(f"Retrieved {len(tickets)} ticket details from Athena")
+    output.add_line(f"Retrieved {len(tickets)} ticket details from Databricks")
     return tickets
 
 def exact_description_search(description, max_results=5):
