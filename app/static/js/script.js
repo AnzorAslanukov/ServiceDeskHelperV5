@@ -127,6 +127,49 @@ class SemanticToggle {
   }
 }
 
+class TicketToggle {
+  constructor(isTicketOn, themeIsDark) {
+    this.isTicketOn = isTicketOn;
+    this.applyIcon(themeIsDark);
+    this.savePreference();
+  }
+
+  applyIcon(themeIsDark) {
+    const icon = document.getElementById('ticket-icon');
+    if (icon) {
+      const state = this.isTicketOn ? 'on' : 'off';
+      const theme = themeIsDark ? 'dark' : 'light';
+      icon.src = '/static/images/ticket_icon_' + state + '_' + theme + '.svg';
+      icon.alt = this.isTicketOn ? 'Switch to Off' : 'Switch to On';
+    }
+    // Update CSS class
+    const btn = document.getElementById('ticket-toggle');
+    if (btn) {
+      if (this.isTicketOn) {
+        btn.classList.remove('off');
+      } else {
+        btn.classList.add('off');
+      }
+    }
+  }
+
+  savePreference() {
+    localStorage.setItem('ticketOn', this.isTicketOn ? 'true' : 'false');
+  }
+
+  static loadPreference() {
+    const saved = localStorage.getItem('ticketOn');
+    const isOn = saved === 'true'; // default false
+    const themeIsDark = TicketToggle.currentThemeIsDark();
+    return new TicketToggle(isOn, themeIsDark);
+  }
+
+  static currentThemeIsDark() {
+    const savedTheme = localStorage.getItem('theme');
+    return savedTheme === 'dark';
+  }
+}
+
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -231,11 +274,12 @@ function displaySearchResults(data, searchValue, searchType) {
   });
 }
 
-// Initialize phone, match, and semantic on page load
+// Initialize phone, match, semantic, and ticket on page load
 document.addEventListener('DOMContentLoaded', function() {
   const phone = PhoneToggle.loadPreference();
   const match = MatchToggle.loadPreference();
   const semantic = SemanticToggle.loadPreference();
+  const ticket = TicketToggle.loadPreference();
 
   // Listen for theme changes to update icons
   document.addEventListener('themeChanged', function(e) {
@@ -243,6 +287,7 @@ document.addEventListener('DOMContentLoaded', function() {
     phone.applyIcon(isDark);
     match.applyIcon(isDark);
     semantic.applyIcon(isDark);
+    ticket.applyIcon(isDark);
   });
 
   // Phone toggle button functionality
@@ -253,18 +298,21 @@ document.addEventListener('DOMContentLoaded', function() {
         // Already on, do nothing
         return;
       } else {
-        // Turn on phone, turn off match and semantic
+        // Turn on phone, turn off match and semantic and ticket
         phone.isPhoneOn = true;
         match.isMatchOn = false;
         semantic.isSemanticOn = false;
+        ticket.isTicketOn = false;
         // Apply changes
         phone.applyIcon(PhoneToggle.currentThemeIsDark());
         match.applyIcon(MatchToggle.currentThemeIsDark());
         semantic.applyIcon(SemanticToggle.currentThemeIsDark());
+        ticket.applyIcon(TicketToggle.currentThemeIsDark());
         // Save preferences
         phone.savePreference();
         match.savePreference();
         semantic.savePreference();
+        ticket.savePreference();
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
@@ -282,18 +330,21 @@ document.addEventListener('DOMContentLoaded', function() {
         // Already on, do nothing
         return;
       } else {
-        // Turn on match, turn off phone and semantic
+        // Turn on match, turn off phone and semantic and ticket
         match.isMatchOn = true;
         phone.isPhoneOn = false;
         semantic.isSemanticOn = false;
+        ticket.isTicketOn = false;
         // Apply changes
         match.applyIcon(MatchToggle.currentThemeIsDark());
         phone.applyIcon(PhoneToggle.currentThemeIsDark());
         semantic.applyIcon(SemanticToggle.currentThemeIsDark());
+        ticket.applyIcon(TicketToggle.currentThemeIsDark());
         // Save preferences
         match.savePreference();
         phone.savePreference();
         semantic.savePreference();
+        ticket.savePreference();
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
@@ -311,22 +362,57 @@ document.addEventListener('DOMContentLoaded', function() {
         // Already on, do nothing
         return;
       } else {
-        // Turn on semantic, turn off phone and match
+        // Turn on semantic, turn off phone and match and ticket
         semantic.isSemanticOn = true;
         phone.isPhoneOn = false;
         match.isMatchOn = false;
+        ticket.isTicketOn = false;
         // Apply changes
         semantic.applyIcon(SemanticToggle.currentThemeIsDark());
         phone.applyIcon(PhoneToggle.currentThemeIsDark());
         match.applyIcon(MatchToggle.currentThemeIsDark());
+        ticket.applyIcon(TicketToggle.currentThemeIsDark());
         // Save preferences
         semantic.savePreference();
         phone.savePreference();
         match.savePreference();
+        ticket.savePreference();
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
           searchInput.placeholder = 'Search tickets by semantic description.';
+        }
+      }
+    });
+  }
+
+  // Ticket toggle button functionality
+  const ticketButton = document.getElementById('ticket-toggle');
+  if (ticketButton) {
+    ticketButton.addEventListener('click', function() {
+      if (ticket.isTicketOn) {
+        // Already on, do nothing
+        return;
+      } else {
+        // Turn on ticket, turn off phone and match and semantic
+        ticket.isTicketOn = true;
+        phone.isPhoneOn = false;
+        match.isMatchOn = false;
+        semantic.isSemanticOn = false;
+        // Apply changes
+        ticket.applyIcon(TicketToggle.currentThemeIsDark());
+        phone.applyIcon(PhoneToggle.currentThemeIsDark());
+        match.applyIcon(MatchToggle.currentThemeIsDark());
+        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
+        // Save preferences
+        ticket.savePreference();
+        phone.savePreference();
+        match.savePreference();
+        semantic.savePreference();
+        // Update search placeholder
+        const searchInput = document.getElementById('ticket-search-input');
+        if (searchInput) {
+          searchInput.placeholder = 'Search for similar tickets using vectors.';
         }
       }
     });
