@@ -447,6 +447,9 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (semantic.isSemanticOn) {
           bodyObj = { semanticDescription: searchValue };
           searchType = 'semantic similarity';
+        } else if (ticket.isTicketOn) {
+          bodyObj = { ticketId: searchValue };
+          searchType = 'ticket-based vector search';
         } else {
           // Default to match if none selected (though mutually exclusive)
           bodyObj = { description: searchValue, contains: true };

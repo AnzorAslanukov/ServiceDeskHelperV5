@@ -124,6 +124,138 @@ def semantic_search(description, max_results=5):
     output.add_line(f"Retrieved {len(tickets)} ticket details from Databricks")
     return tickets
 
+def ticket_vector_search(ticket_number, max_results=5):
+    """
+    Perform vector search based on a ticket number:
+    1. Get ticket details from Athena using ticket_number
+    2. Combine title and description for embedding
+    3. Perform vector similarity search against pre-stored embeddings
+    4. Return similar ticket details from Databricks
+    """
+    from services.output import Output
+    output = Output()
+
+    output.add_line(f"Starting ticket-based vector search for ticket: {ticket_number}")
+
+    # Step 1: Get ticket details from Athena
+    athena = Athena()
+    ticket_result = athena.get_ticket_data(ticket_number=ticket_number, view=True)
+
+    if not ticket_result or 'result' not in ticket_result or not ticket_result['result']:
+        output.add_line(f"Could not retrieve ticket {ticket_number} from Athena")
+        return []
+
+    ticket_data = ticket_result['result'][0]  # Get the first result
+    ticket_title = ticket_data.get('title', '')
+    ticket_description = ticket_data.get('description', '')
+
+    # Step 2: Combine title and description for embedding
+    search_text = f"{ticket_title} {ticket_description}".strip()
+    if not search_text:
+        output.add_line(f"No searchable text in ticket {ticket_number}")
+        return []
+
+    output.add_line(f"Search text from ticket {ticket_number}: '{search_text[:100]}{'...' if len(search_text) > 100 else ''}'")
+
+    # Step 3: Generate embedding for the ticket content
+    emb_model = EmbeddingModel()
+    search_embedding = emb_model.get_embedding(search_text)
+
+    if not search_embedding:
+        output.add_line("Embedding generation failed")
+        return []
+
+    output.add_line(f"Generated embedding with {len(search_embedding)} dimensions")
+
+    # Step 4: Load embeddings from jsonl file and perform similarity search
+    embeddings_file = 'ir_embeddings.jsonl'
+    ids_and_embeddings = []
+
+    try:
+        with open(embeddings_file, 'r') as f:
+            for line_num, line in enumerate(f):
+                obj = json.loads(line.strip())
+                ticket_id = obj['id']
+                ticket_embedding = np.array(obj['ticket_embedding'])
+                ids_and_embeddings.append((ticket_id, ticket_embedding))
+
+        output.add_line(f"Loaded {len(ids_and_embeddings)} ticket embeddings from {embeddings_file}")
+
+    except FileNotFoundError:
+        output.add_line(f"Error: {embeddings_file} not found")
+        return []
+    except Exception as e:
+        output.add_line(f"Error loading embeddings: {str(e)}")
+        return []
+
+    if not ids_and_embeddings:
+        output.add_line("No embeddings loaded")
+        return []
+
+    # Prepare search embedding
+    search_emb = np.array(search_embedding).reshape(1, -1)
+
+    # Prepare all ticket embeddings
+    ticket_embs = np.array([emb for _, emb in ids_and_embeddings])
+
+    # Compute cosine similarities
+    output.add_line("Computing cosine similarities...")
+    similarities = cosine_similarity(search_emb, ticket_embs)[0]
+
+    # Get top max_results indices sorted by similarity descending
+    top_indices = np.argsort(similarities)[-max_results:][::-1]
+
+    top_ticket_ids = [ids_and_embeddings[i][0] for i in top_indices]
+    top_similarities = [similarities[i] for i in top_indices]
+
+    output.add_line(f"Top {len(top_ticket_ids)} similar tickets: {top_ticket_ids}")
+    output.add_line(f"Similarities: {[f'{s:.4f}' for s in top_similarities]}")
+
+    # Step 5: Retrieve full ticket details from Databricks (same as other searches)
+    ids_string = ','.join(f"'{id}'" for id in top_ticket_ids)
+    query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ({ids_string})"
+
+    db = Databricks()
+    result = db.execute_sql_query(query)
+
+    if not result or result.get('status') != 'success' or not result.get('data'):
+        output.add_line("No ticket details retrieved from Databricks")
+        return []
+
+    # Define column names based on the expected order from Databricks
+    col_names = [
+        'TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title',
+        'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName',
+        'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area',
+        'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments',
+        'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
+    ]
+
+    tickets = []
+    for row in result['data']:
+        ticket_dict = dict(zip(col_names, row))
+
+        # Map to expected ticket format (same as exact_description_search)
+        ticket = {
+            'id': ticket_dict.get('Id'),
+            'title': ticket_dict.get('Title'),
+            'description': ticket_dict.get('Description'),
+            'statusValue': ticket_dict.get('Status'),
+            'priorityValue': ticket_dict.get('Priority'),
+            'assignedTo_DisplayName': ticket_dict.get('AssignedToUserName', ''),
+            'affectedUser_DisplayName': ticket_dict.get('AffectedUserName', ''),
+            'createdDate': ticket_dict.get('CreatedDate'),
+            'completedDate': ticket_dict.get('ResolvedDate'),
+            'locationValue': ticket_dict.get('Location'),
+            'sourceValue': ticket_dict.get('Source'),
+            'supportGroupValue': ticket_dict.get('SupportGroup'),
+            'resolutionNotes': ticket_dict.get('ResolutionNotes')
+        }
+        tickets.append(ticket)
+
+    output.add_line(f"Retrieved {len(tickets)} ticket details from Databricks")
+    return tickets
+
 def exact_description_search(description, max_results=5):
     """
     Perform exact description search using SQL LIKE query on Databricks athena_tickets table.
@@ -229,8 +361,27 @@ def search_tickets():
 
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+
+    elif 'ticketId' in data:
+        # Ticket-based vector search
+        search_value = data['ticketId']
+        try:
+            tickets = ticket_vector_search(search_value, max_results=5)
+
+            # Return Athena-like response format
+            response = {
+                'currentPage': 1,
+                'resultCount': len(tickets),
+                'pageSize': 5,
+                'hasMoreResults': False,
+                'result': tickets
+            }
+            return jsonify(response)
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
     else:
-        return jsonify({'error': 'Missing search parameter (contactMethod, description, or semanticDescription)'}), 400
+        return jsonify({'error': 'Missing search parameter (contactMethod, description, semanticDescription, or ticketId)'}), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
