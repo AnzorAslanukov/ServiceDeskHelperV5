@@ -262,6 +262,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Check for assignment mode
       if (searchInputElement.placeholder.includes('ticket assignment')) {
+        // Disable search button and show loading state
+        searchButton.disabled = true;
+        searchButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+        // Ensure content area exists
+        if (!document.getElementById('content-area')) {
+          const contentArea = document.createElement('div');
+          contentArea.id = 'content-area';
+          contentArea.className = 'mt-4';
+          const mainContent = document.querySelector('.main-content');
+          mainContent.appendChild(contentArea);
+        }
+
+        // Show loading spinner in content area
+        document.getElementById('content-area').innerHTML = '<div class="d-flex justify-content-center my-4"><div class="spinner-grow text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+
         try {
           const bodyObj = { ticketId: searchValue };
           const response = await fetch('/api/get-ticket-advice', {
@@ -293,6 +309,10 @@ document.addEventListener('DOMContentLoaded', function() {
             mainContent.appendChild(contentArea);
           }
           document.getElementById('content-area').innerHTML = '<div class="alert alert-danger">Error getting advice: ' + error.message + '</div>';
+        } finally {
+          // Re-enable search button and reset text
+          searchButton.disabled = false;
+          searchButton.innerHTML = '<i class="bi bi-search"></i>';
         }
         return;
       }

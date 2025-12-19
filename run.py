@@ -13,6 +13,10 @@ from services.prompts import PROMPTS
 # Add current directory to path for imports when running as script
 sys.path.insert(0, os.path.dirname(__file__))
 
+from services.output import Output
+
+DEBUG = True  # Global debug setting for print statements
+
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
 
 @app.route('/favicon.ico')
@@ -318,6 +322,9 @@ def get_ticket_advice(ticket_number):
 
     output = Output()
 
+    if DEBUG:
+        output.add_line("Starting get_ticket_advice function")
+
     # Get original ticket data
     athena = Athena()
     original_result = athena.get_ticket_data(ticket_number=ticket_number, view=True)
@@ -456,9 +463,16 @@ def search_tickets():
 @app.route('/api/get-ticket-advice', methods=['POST'])
 def api_get_ticket_advice():
     data = request.get_json()
+    if DEBUG:
+        output = Output()
+        output.add_line(f"api_get_ticket_advice called with data: {data}")
     if 'ticketId' in data:
         ticket_number = data['ticketId']
+        if DEBUG:
+            output.add_line(f"Starting get_ticket_advice for {ticket_number}")
         get_ticket_advice(ticket_number)
+        if DEBUG:
+            output.add_line(f"Finished get_ticket_advice for {ticket_number}")
         return jsonify({})
     else:
         return jsonify({'error': 'Missing ticketId'}), 400
