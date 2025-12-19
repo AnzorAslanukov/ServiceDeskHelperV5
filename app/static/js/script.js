@@ -1,174 +1,5 @@
-class PhoneToggle {
-  constructor(isPhoneOn, themeIsDark) {
-    this.isPhoneOn = isPhoneOn;
-    this.applyIcon(themeIsDark);
-    this.savePreference();
-  }
+console.log('Script loaded. ToggleButton available:', typeof ToggleButton);
 
-  applyIcon(themeIsDark) {
-    const icon = document.getElementById('phone-icon');
-    if (icon) {
-      const state = this.isPhoneOn ? 'on' : 'off';
-      const theme = themeIsDark ? 'dark' : 'light';
-      icon.src = '/static/images/phone_icon_' + state + '_' + theme + '.svg';
-      icon.alt = this.isPhoneOn ? 'Switch to Off' : 'Switch to On';
-    }
-    // Update CSS class
-    const btn = document.getElementById('phone-toggle');
-    if (btn) {
-      if (this.isPhoneOn) {
-        btn.classList.remove('off');
-      } else {
-        btn.classList.add('off');
-      }
-    }
-  }
-
-  savePreference() {
-    localStorage.setItem('phoneOn', this.isPhoneOn ? 'true' : 'false');
-  }
-
-  static loadPreference() {
-    const saved = localStorage.getItem('phoneOn');
-    const isOn = saved !== 'false'; // default true
-    const themeIsDark = PhoneToggle.currentThemeIsDark();
-    return new PhoneToggle(isOn, themeIsDark);
-  }
-
-  static currentThemeIsDark() {
-    const savedTheme = localStorage.getItem('theme');
-    return savedTheme === 'dark';
-  }
-}
-
-class MatchToggle {
-  constructor(isMatchOn, themeIsDark) {
-    this.isMatchOn = isMatchOn;
-    this.applyIcon(themeIsDark);
-    this.savePreference();
-  }
-
-  applyIcon(themeIsDark) {
-    const icon = document.getElementById('match-icon');
-    if (icon) {
-      const state = this.isMatchOn ? 'on' : 'off';
-      const theme = themeIsDark ? 'dark' : 'light';
-      icon.src = '/static/images/sentence_match_icon_' + state + '_' + theme + '.svg';
-      icon.alt = this.isMatchOn ? 'Switch to Off' : 'Switch to On';
-    }
-    // Update CSS class
-    const btn = document.getElementById('match-toggle');
-    if (btn) {
-      if (this.isMatchOn) {
-        btn.classList.remove('off');
-      } else {
-        btn.classList.add('off');
-      }
-    }
-  }
-
-  savePreference() {
-    localStorage.setItem('matchOn', this.isMatchOn ? 'true' : 'false');
-  }
-
-  static loadPreference() {
-    const saved = localStorage.getItem('matchOn');
-    const isOn = saved === 'true'; // default false
-    const themeIsDark = MatchToggle.currentThemeIsDark();
-    return new MatchToggle(isOn, themeIsDark);
-  }
-
-  static currentThemeIsDark() {
-    const savedTheme = localStorage.getItem('theme');
-    return savedTheme === 'dark';
-  }
-}
-
-class SemanticToggle {
-  constructor(isSemanticOn, themeIsDark) {
-    this.isSemanticOn = isSemanticOn;
-    this.applyIcon(themeIsDark);
-    this.savePreference();
-  }
-
-  applyIcon(themeIsDark) {
-    const icon = document.getElementById('semantic-icon');
-    if (icon) {
-      const state = this.isSemanticOn ? 'on' : 'off';
-      const theme = themeIsDark ? 'dark' : 'light';
-      icon.src = '/static/images/abc_icon_' + state + '_' + theme + '.svg';
-      icon.alt = this.isSemanticOn ? 'Switch to Off' : 'Switch to On';
-    }
-    // Update CSS class
-    const btn = document.getElementById('semantic-toggle');
-    if (btn) {
-      if (this.isSemanticOn) {
-        btn.classList.remove('off');
-      } else {
-        btn.classList.add('off');
-      }
-    }
-  }
-
-  savePreference() {
-    localStorage.setItem('semanticOn', this.isSemanticOn ? 'true' : 'false');
-  }
-
-  static loadPreference() {
-    const saved = localStorage.getItem('semanticOn');
-    const isOn = saved === 'true'; // default false
-    const themeIsDark = SemanticToggle.currentThemeIsDark();
-    return new SemanticToggle(isOn, themeIsDark);
-  }
-
-  static currentThemeIsDark() {
-    const savedTheme = localStorage.getItem('theme');
-    return savedTheme === 'dark';
-  }
-}
-
-class TicketToggle {
-  constructor(isTicketOn, themeIsDark) {
-    this.isTicketOn = isTicketOn;
-    this.applyIcon(themeIsDark);
-    this.savePreference();
-  }
-
-  applyIcon(themeIsDark) {
-    const icon = document.getElementById('ticket-icon');
-    if (icon) {
-      const state = this.isTicketOn ? 'on' : 'off';
-      const theme = themeIsDark ? 'dark' : 'light';
-      icon.src = '/static/images/ticket_icon_' + state + '_' + theme + '.svg';
-      icon.alt = this.isTicketOn ? 'Switch to Off' : 'Switch to On';
-    }
-    // Update CSS class
-    const btn = document.getElementById('ticket-toggle');
-    if (btn) {
-      if (this.isTicketOn) {
-        btn.classList.remove('off');
-      } else {
-        btn.classList.add('off');
-      }
-    }
-  }
-
-  savePreference() {
-    localStorage.setItem('ticketOn', this.isTicketOn ? 'true' : 'false');
-  }
-
-  static loadPreference() {
-    const saved = localStorage.getItem('ticketOn');
-    const isOn = saved === 'true'; // default false
-    const themeIsDark = TicketToggle.currentThemeIsDark();
-    return new TicketToggle(isOn, themeIsDark);
-  }
-
-  static currentThemeIsDark() {
-    const savedTheme = localStorage.getItem('theme');
-    return savedTheme === 'dark';
-  }
-}
 
 async function copyToClipboard(text) {
   try {
@@ -276,10 +107,10 @@ function displaySearchResults(data, searchValue, searchType) {
 
 // Initialize phone, match, semantic, and ticket on page load
 document.addEventListener('DOMContentLoaded', function() {
-  const phone = PhoneToggle.loadPreference();
-  const match = MatchToggle.loadPreference();
-  const semantic = SemanticToggle.loadPreference();
-  const ticket = TicketToggle.loadPreference();
+  const phone = ToggleButton.loadPreference(true, 'phoneOn', 'phone_icon', 'phone-icon', 'phone-toggle');
+  const match = ToggleButton.loadPreference(false, 'matchOn', 'sentence_match_icon', 'match-icon', 'match-toggle');
+  const semantic = ToggleButton.loadPreference(false, 'semanticOn', 'abc_icon', 'semantic-icon', 'semantic-toggle');
+  const ticket = ToggleButton.loadPreference(false, 'ticketOn', 'ticket_icon', 'ticket-icon', 'ticket-toggle');
 
   // Listen for theme changes to update icons
   document.addEventListener('themeChanged', function(e) {
@@ -294,20 +125,20 @@ document.addEventListener('DOMContentLoaded', function() {
   const phoneButton = document.getElementById('phone-toggle');
   if (phoneButton) {
     phoneButton.addEventListener('click', function() {
-      if (phone.isPhoneOn) {
+      if (phone.isOn) {
         // Already on, do nothing
         return;
       } else {
         // Turn on phone, turn off match and semantic and ticket
-        phone.isPhoneOn = true;
-        match.isMatchOn = false;
-        semantic.isSemanticOn = false;
-        ticket.isTicketOn = false;
+        phone.isOn = true;
+        match.isOn = false;
+        semantic.isOn = false;
+        ticket.isOn = false;
         // Apply changes
-        phone.applyIcon(PhoneToggle.currentThemeIsDark());
-        match.applyIcon(MatchToggle.currentThemeIsDark());
-        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
-        ticket.applyIcon(TicketToggle.currentThemeIsDark());
+        phone.applyIcon(ToggleButton.currentThemeIsDark());
+        match.applyIcon(ToggleButton.currentThemeIsDark());
+        semantic.applyIcon(ToggleButton.currentThemeIsDark());
+        ticket.applyIcon(ToggleButton.currentThemeIsDark());
         // Save preferences
         phone.savePreference();
         match.savePreference();
@@ -326,20 +157,20 @@ document.addEventListener('DOMContentLoaded', function() {
   const matchButton = document.getElementById('match-toggle');
   if (matchButton) {
     matchButton.addEventListener('click', function() {
-      if (match.isMatchOn) {
+      if (match.isOn) {
         // Already on, do nothing
         return;
       } else {
         // Turn on match, turn off phone and semantic and ticket
-        match.isMatchOn = true;
-        phone.isPhoneOn = false;
-        semantic.isSemanticOn = false;
-        ticket.isTicketOn = false;
+        match.isOn = true;
+        phone.isOn = false;
+        semantic.isOn = false;
+        ticket.isOn = false;
         // Apply changes
-        match.applyIcon(MatchToggle.currentThemeIsDark());
-        phone.applyIcon(PhoneToggle.currentThemeIsDark());
-        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
-        ticket.applyIcon(TicketToggle.currentThemeIsDark());
+        match.applyIcon(ToggleButton.currentThemeIsDark());
+        phone.applyIcon(ToggleButton.currentThemeIsDark());
+        semantic.applyIcon(ToggleButton.currentThemeIsDark());
+        ticket.applyIcon(ToggleButton.currentThemeIsDark());
         // Save preferences
         match.savePreference();
         phone.savePreference();
@@ -358,20 +189,20 @@ document.addEventListener('DOMContentLoaded', function() {
   const semanticButton = document.getElementById('semantic-toggle');
   if (semanticButton) {
     semanticButton.addEventListener('click', function() {
-      if (semantic.isSemanticOn) {
+      if (semantic.isOn) {
         // Already on, do nothing
         return;
       } else {
         // Turn on semantic, turn off phone and match and ticket
-        semantic.isSemanticOn = true;
-        phone.isPhoneOn = false;
-        match.isMatchOn = false;
-        ticket.isTicketOn = false;
+        semantic.isOn = true;
+        phone.isOn = false;
+        match.isOn = false;
+        ticket.isOn = false;
         // Apply changes
-        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
-        phone.applyIcon(PhoneToggle.currentThemeIsDark());
-        match.applyIcon(MatchToggle.currentThemeIsDark());
-        ticket.applyIcon(TicketToggle.currentThemeIsDark());
+        semantic.applyIcon(ToggleButton.currentThemeIsDark());
+        phone.applyIcon(ToggleButton.currentThemeIsDark());
+        match.applyIcon(ToggleButton.currentThemeIsDark());
+        ticket.applyIcon(ToggleButton.currentThemeIsDark());
         // Save preferences
         semantic.savePreference();
         phone.savePreference();
@@ -390,20 +221,20 @@ document.addEventListener('DOMContentLoaded', function() {
   const ticketButton = document.getElementById('ticket-toggle');
   if (ticketButton) {
     ticketButton.addEventListener('click', function() {
-      if (ticket.isTicketOn) {
+      if (ticket.isOn) {
         // Already on, do nothing
         return;
       } else {
         // Turn on ticket, turn off phone and match and semantic
-        ticket.isTicketOn = true;
-        phone.isPhoneOn = false;
-        match.isMatchOn = false;
-        semantic.isSemanticOn = false;
+        ticket.isOn = true;
+        phone.isOn = false;
+        match.isOn = false;
+        semantic.isOn = false;
         // Apply changes
-        ticket.applyIcon(TicketToggle.currentThemeIsDark());
-        phone.applyIcon(PhoneToggle.currentThemeIsDark());
-        match.applyIcon(MatchToggle.currentThemeIsDark());
-        semantic.applyIcon(SemanticToggle.currentThemeIsDark());
+        ticket.applyIcon(ToggleButton.currentThemeIsDark());
+        phone.applyIcon(ToggleButton.currentThemeIsDark());
+        match.applyIcon(ToggleButton.currentThemeIsDark());
+        semantic.applyIcon(ToggleButton.currentThemeIsDark());
         // Save preferences
         ticket.savePreference();
         phone.savePreference();
@@ -429,6 +260,43 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
 
+      // Check for assignment mode
+      if (searchInputElement.placeholder.includes('ticket assignment')) {
+        try {
+          const bodyObj = { ticketId: searchValue };
+          const response = await fetch('/api/get-ticket-advice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyObj)
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const data = await response.json();
+          // Ensure content area exists
+          if (!document.getElementById('content-area')) {
+            const contentArea = document.createElement('div');
+            contentArea.id = 'content-area';
+            contentArea.className = 'mt-4';
+            const mainContent = document.querySelector('.main-content');
+            mainContent.appendChild(contentArea);
+          }
+          // Show success message
+          document.getElementById('content-area').innerHTML = '<div class="alert alert-success">Ticket advice compiled. Check output.txt for details.</div>';
+        } catch (error) {
+          // Ensure content area exists for error message
+          if (!document.getElementById('content-area')) {
+            const contentArea = document.createElement('div');
+            contentArea.id = 'content-area';
+            contentArea.className = 'mt-4';
+            const mainContent = document.querySelector('.main-content');
+            mainContent.appendChild(contentArea);
+          }
+          document.getElementById('content-area').innerHTML = '<div class="alert alert-danger">Error getting advice: ' + error.message + '</div>';
+        }
+        return;
+      }
+
       // Disable search button and show loading state
       searchButton.disabled = true;
       searchButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
@@ -438,16 +306,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
       try {
         let bodyObj, searchType;
-        if (phone.isPhoneOn) {
+        if (phone.isOn) {
           bodyObj = { contactMethod: searchValue, contains: true };
           searchType = 'phone number';
-        } else if (match.isMatchOn) {
+        } else if (match.isOn) {
           bodyObj = { description: searchValue, contains: true };
           searchType = 'exact match';
-        } else if (semantic.isSemanticOn) {
+        } else if (semantic.isOn) {
           bodyObj = { semanticDescription: searchValue };
           searchType = 'semantic similarity';
-        } else if (ticket.isTicketOn) {
+        } else if (ticket.isOn) {
           bodyObj = { ticketId: searchValue };
           searchType = 'ticket-based vector search';
         } else {
@@ -476,6 +344,82 @@ document.addEventListener('DOMContentLoaded', function() {
         searchButton.disabled = false;
         searchButton.innerHTML = '<i class="bi bi-search"></i>';
       }
+    });
+  }
+
+  // Ticket assignment navigation button functionality
+  const assignmentBtn = document.getElementById('ticket-assignment-nav-btn');
+  if (assignmentBtn) {
+    assignmentBtn.addEventListener('click', function() {
+      // Remove toggle buttons
+      const toggleDiv = document.querySelector('.main-content .d-flex');
+      if (toggleDiv) toggleDiv.remove();
+      // Remove content area
+      const contentArea = document.getElementById('content-area');
+      if (contentArea) contentArea.remove();
+      // Update placeholder
+      const searchInput = document.getElementById('ticket-search-input');
+      if (searchInput) {
+        searchInput.placeholder = 'Get advice on ticket assignment. Enter a ticket number.';
+      }
+    });
+  }
+
+  // Ticket search navigation button functionality
+  const searchNavBtn = document.getElementById('ticket-search-nav-btn');
+  if (searchNavBtn) {
+    searchNavBtn.addEventListener('click', function() {
+      // Add back toggle buttons if not present
+      if (!document.querySelector('.main-content .d-flex')) {
+        const toggleDiv = document.createElement('div');
+        toggleDiv.className = 'd-flex justify-content-center align-items-center mb-4';
+        toggleDiv.innerHTML = `
+          <button id="phone-toggle" class="btn phone-btn rounded-circle" aria-label="Phone Toggle">
+            <img id="phone-icon" src="/static/images/phone_icon_on_light.svg" alt="Phone Toggle" class="img-fluid">
+          </button>
+          <button id="match-toggle" class="btn match-btn rounded-circle" aria-label="Match Toggle" style="margin-left: 0.5rem;">
+            <img id="match-icon" src="/static/images/sentence_match_icon_off_light.svg" alt="Match Toggle" class="img-fluid">
+          </button>
+          <button id="semantic-toggle" class="btn semantic-btn rounded-circle" aria-label="Semantic Toggle" style="margin-left: 0.5rem;">
+            <img id="semantic-icon" src="/static/images/abc_icon_off_light.svg" alt="Semantic Toggle" class="img-fluid">
+          </button>
+          <button id="ticket-toggle" class="btn ticket-btn rounded-circle" aria-label="Ticket Toggle" style="margin-left: 0.5rem;">
+            <img id="ticket-icon" src="/static/images/ticket_icon_off_light.svg" alt="Ticket Toggle" class="img-fluid">
+          </button>
+        `;
+        const mainContent = document.querySelector('.main-content');
+        const searchGroup = mainContent.querySelector('.input-group');
+        if (searchGroup) {
+          searchGroup.insertAdjacentElement('afterend', toggleDiv);
+        }
+      }
+      // Add back content area if not present
+      if (!document.getElementById('content-area')) {
+        const contentArea = document.createElement('div');
+        contentArea.id = 'content-area';
+        contentArea.className = 'mt-4';
+        contentArea.innerHTML = '<!-- Dynamic content will go here -->';
+        const mainContent = document.querySelector('.main-content');
+        mainContent.appendChild(contentArea);
+      }
+      // Re-initialize toggle button instances
+      const phone = ToggleButton.loadPreference(true, 'phoneOn', 'phone_icon', 'phone-icon', 'phone-toggle');
+      const match = ToggleButton.loadPreference(false, 'matchOn', 'sentence_match_icon', 'match-icon', 'match-toggle');
+      const semantic = ToggleButton.loadPreference(false, 'semanticOn', 'abc_icon', 'semantic-icon', 'semantic-toggle');
+      const ticket = ToggleButton.loadPreference(false, 'ticketOn', 'ticket_icon', 'ticket-icon', 'ticket-toggle');
+      // Update placeholder
+      const searchInput = document.getElementById('ticket-search-input');
+      if (searchInput) {
+        searchInput.placeholder = 'Search tickets by phone number.';
+      }
+      // Re-attach theme change listener for re-initialized toggles
+      document.addEventListener('themeChanged', function(e) {
+        const isDark = e.detail.isDark;
+        phone.applyIcon(isDark);
+        match.applyIcon(isDark);
+        semantic.applyIcon(isDark);
+        ticket.applyIcon(isDark);
+      });
     });
   }
 });

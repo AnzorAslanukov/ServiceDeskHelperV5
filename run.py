@@ -1,10 +1,17 @@
 from flask import Flask, render_template, send_from_directory, request, jsonify
 import json
 import numpy as np
+import sys
+import os
 from sklearn.metrics.pairwise import cosine_similarity
 from services.athena import Athena
 from services.databricks import Databricks
 from services.embedding_model import EmbeddingModel
+from services.text_generation_model import TextGenerationModel
+from services.prompts import PROMPTS
+
+# Add current directory to path for imports when running as script
+sys.path.insert(0, os.path.dirname(__file__))
 
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
 
@@ -302,6 +309,69 @@ def exact_description_search(description, max_results=5):
 
     return tickets
 
+def get_ticket_advice(ticket_number):
+    """
+    Get ticket advice by compiling structured data and using LLM for assignment recommendations.
+    """
+    from services.output import Output
+    import json
+
+    output = Output()
+
+    # Get original ticket data
+    athena = Athena()
+    original_result = athena.get_ticket_data(ticket_number=ticket_number, view=True)
+
+    if not original_result or not original_result.get('result'):
+        output.add_line(f"Could not retrieve original ticket {ticket_number}")
+        return None
+
+    original_data = original_result['result'][0]
+
+    # Get similar tickets
+    similar_tickets = ticket_vector_search(ticket_number, max_results=5)
+
+    # Extract fields for original
+    def extract_fields(ticket):
+        return {
+            "title": ticket.get("title", ""),
+            "description": ticket.get("description", ""),
+            "priority": ticket.get("priority", "") or ticket.get("priorityValue", ""),
+            "locationValue": ticket.get("locationValue", ""),
+            "floorValue": ticket.get("floorValue", ""),
+            "affectedUser_Department": ticket.get("affectedUser_Department", ""),
+            "affectedUser_Title": ticket.get("affectedUser_Title", "")
+        }
+
+    structured_data = {
+        "original_ticket": extract_fields(original_data),
+        "similar_tickets": similar_tickets
+    }
+
+    # Convert to JSON string
+    json_data = json.dumps(structured_data, indent=2)
+
+    # Format prompt with JSON data
+    prompt = PROMPTS["ticket_assignment"].format(json_data=json_data)
+
+    # Get LLM recommendations
+    model = TextGenerationModel()
+    assignment_result = model.ask(prompt, max_retries=3)
+
+    # Log results
+    output.add_line("Ticket Advice Request:")
+    output.add_line(f"Ticket: {ticket_number}")
+    output.add_line("Assignment Recommendations:")
+    if "error" in assignment_result:
+        output.add_line(f"Error: {assignment_result['error']}")
+    else:
+        output.add_line(f"Recommended Support Group: {assignment_result.get('recommended_support_group', 'N/A')}")
+        output.add_line(f"Recommended Priority Level: {assignment_result.get('recommended_priority_level', 'N/A')}")
+        output.add_line("Detailed Explanation:")
+        output.add_line(assignment_result.get('detailed_explanation', 'N/A'))
+
+    return None
+
 @app.route('/api/search-tickets', methods=['POST'])
 def search_tickets():
     data = request.get_json()
@@ -382,6 +452,16 @@ def search_tickets():
             return jsonify({'error': str(e)}), 500
     else:
         return jsonify({'error': 'Missing search parameter (contactMethod, description, semanticDescription, or ticketId)'}), 400
+
+@app.route('/api/get-ticket-advice', methods=['POST'])
+def api_get_ticket_advice():
+    data = request.get_json()
+    if 'ticketId' in data:
+        ticket_number = data['ticketId']
+        get_ticket_advice(ticket_number)
+        return jsonify({})
+    else:
+        return jsonify({'error': 'Missing ticketId'}), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
