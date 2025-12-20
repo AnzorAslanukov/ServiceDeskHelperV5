@@ -112,6 +112,20 @@ document.addEventListener('DOMContentLoaded', function() {
   const semantic = ToggleButton.loadPreference(false, 'semanticOn', 'abc_icon', 'semantic-icon', 'semantic-toggle');
   const ticket = ToggleButton.loadPreference(false, 'ticketOn', 'ticket_icon', 'ticket-icon', 'ticket-toggle');
 
+  // Set placeholder based on currently active toggle
+  const searchInput = document.getElementById('ticket-search-input');
+  if (searchInput) {
+    if (phone.isOn) {
+      searchInput.placeholder = 'Search tickets by phone number.';
+    } else if (match.isOn) {
+      searchInput.placeholder = 'Search tickets by exact sentence match.';
+    } else if (semantic.isOn) {
+      searchInput.placeholder = 'Search tickets by semantic description.';
+    } else if (ticket.isOn) {
+      searchInput.placeholder = 'Search for similar tickets using vectors.';
+    }
+  }
+
   // Listen for theme changes to update icons
   document.addEventListener('themeChanged', function(e) {
     const isDark = e.detail.isDark;
@@ -418,10 +432,18 @@ document.addEventListener('DOMContentLoaded', function() {
       const match = ToggleButton.loadPreference(false, 'matchOn', 'sentence_match_icon', 'match-icon', 'match-toggle');
       const semantic = ToggleButton.loadPreference(false, 'semanticOn', 'abc_icon', 'semantic-icon', 'semantic-toggle');
       const ticket = ToggleButton.loadPreference(false, 'ticketOn', 'ticket_icon', 'ticket-icon', 'ticket-toggle');
-      // Update placeholder
+      // Set placeholder based on currently active toggle
       const searchInput = document.getElementById('ticket-search-input');
       if (searchInput) {
-        searchInput.placeholder = 'Search tickets by phone number.';
+        if (phone.isOn) {
+          searchInput.placeholder = 'Search tickets by phone number.';
+        } else if (match.isOn) {
+          searchInput.placeholder = 'Search tickets by exact sentence match.';
+        } else if (semantic.isOn) {
+          searchInput.placeholder = 'Search tickets by semantic description.';
+        } else if (ticket.isOn) {
+          searchInput.placeholder = 'Search for similar tickets using vectors.';
+        }
       }
       // Re-attach theme change listener for re-initialized toggles
       document.addEventListener('themeChanged', function(e) {
@@ -431,6 +453,135 @@ document.addEventListener('DOMContentLoaded', function() {
         semantic.applyIcon(isDark);
         ticket.applyIcon(isDark);
       });
+
+      // Re-attach toggle button event listeners for dynamically created buttons
+      // Phone toggle button functionality
+      const phoneButton = document.getElementById('phone-toggle');
+      if (phoneButton) {
+        phoneButton.addEventListener('click', function() {
+          if (phone.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on phone, turn off match and semantic and ticket
+            phone.isOn = true;
+            match.isOn = false;
+            semantic.isOn = false;
+            ticket.isOn = false;
+            // Apply changes
+            phone.applyIcon(ToggleButton.currentThemeIsDark());
+            match.applyIcon(ToggleButton.currentThemeIsDark());
+            semantic.applyIcon(ToggleButton.currentThemeIsDark());
+            ticket.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            phone.savePreference();
+            match.savePreference();
+            semantic.savePreference();
+            ticket.savePreference();
+            // Update search placeholder
+            const searchInput = document.getElementById('ticket-search-input');
+            if (searchInput) {
+              searchInput.placeholder = 'Search tickets by phone number.';
+            }
+          }
+        });
+      }
+
+      // Match toggle button functionality
+      const matchButton = document.getElementById('match-toggle');
+      if (matchButton) {
+        matchButton.addEventListener('click', function() {
+          if (match.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on match, turn off phone and semantic and ticket
+            match.isOn = true;
+            phone.isOn = false;
+            semantic.isOn = false;
+            ticket.isOn = false;
+            // Apply changes
+            match.applyIcon(ToggleButton.currentThemeIsDark());
+            phone.applyIcon(ToggleButton.currentThemeIsDark());
+            semantic.applyIcon(ToggleButton.currentThemeIsDark());
+            ticket.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            match.savePreference();
+            phone.savePreference();
+            semantic.savePreference();
+            ticket.savePreference();
+            // Update search placeholder
+            const searchInput = document.getElementById('ticket-search-input');
+            if (searchInput) {
+              searchInput.placeholder = 'Search tickets by exact sentence match.';
+            }
+          }
+        });
+      }
+
+      // Semantic toggle button functionality
+      const semanticButton = document.getElementById('semantic-toggle');
+      if (semanticButton) {
+        semanticButton.addEventListener('click', function() {
+          if (semantic.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on semantic, turn off phone and match and ticket
+            semantic.isOn = true;
+            phone.isOn = false;
+            match.isOn = false;
+            ticket.isOn = false;
+            // Apply changes
+            semantic.applyIcon(ToggleButton.currentThemeIsDark());
+            phone.applyIcon(ToggleButton.currentThemeIsDark());
+            match.applyIcon(ToggleButton.currentThemeIsDark());
+            ticket.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            semantic.savePreference();
+            phone.savePreference();
+            match.savePreference();
+            ticket.savePreference();
+            // Update search placeholder
+            const searchInput = document.getElementById('ticket-search-input');
+            if (searchInput) {
+              searchInput.placeholder = 'Search tickets by semantic description.';
+            }
+          }
+        });
+      }
+
+      // Ticket toggle button functionality
+      const ticketButton = document.getElementById('ticket-toggle');
+      if (ticketButton) {
+        ticketButton.addEventListener('click', function() {
+          if (ticket.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on ticket, turn off phone and match and semantic
+            ticket.isOn = true;
+            phone.isOn = false;
+            match.isOn = false;
+            semantic.isOn = false;
+            // Apply changes
+            ticket.applyIcon(ToggleButton.currentThemeIsDark());
+            phone.applyIcon(ToggleButton.currentThemeIsDark());
+            match.applyIcon(ToggleButton.currentThemeIsDark());
+            semantic.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            ticket.savePreference();
+            phone.savePreference();
+            match.savePreference();
+            semantic.savePreference();
+            // Update search placeholder
+            const searchInput = document.getElementById('ticket-search-input');
+            if (searchInput) {
+              searchInput.placeholder = 'Search for similar tickets using vectors.';
+            }
+          }
+        });
+      }
     });
   }
 });
