@@ -289,16 +289,7 @@ document.addEventListener('DOMContentLoaded', function() {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           const data = await response.json();
-          // Ensure content area exists
-          if (!document.getElementById('content-area')) {
-            const contentArea = document.createElement('div');
-            contentArea.id = 'content-area';
-            contentArea.className = 'mt-4';
-            const mainContent = document.querySelector('.main-content');
-            mainContent.appendChild(contentArea);
-          }
-          // Show success message
-          document.getElementById('content-area').innerHTML = '<div class="alert alert-success">Ticket advice compiled. Check output.txt for details.</div>';
+          displaySearchResults(data, searchValue, 'ticket data');
         } catch (error) {
           // Ensure content area exists for error message
           if (!document.getElementById('content-area')) {

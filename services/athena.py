@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from output import Output
 from parse_json import ParseJson
+from field_mapping import FieldMapper
 
 load_dotenv()
 
@@ -139,7 +140,8 @@ class Athena:
             try:
                 response = requests.post(self.irv_url, headers=headers, json=payload, timeout=30)
                 if response.status_code == 200:
-                    return response.json()  # Assuming you want to return the data
+                    raw_data = response.json()
+                    return FieldMapper.normalize_athena_data(raw_data)  # Normalize field names
                 else:
                     if DEBUG:
                         self.output.add_line(f"GET ticket data failed: {response.status_code} - {response.text}")
@@ -173,7 +175,8 @@ class Athena:
                 try:
                     response = requests.post(self.irv_url, headers=headers, json=payload, timeout=120)
                     if response.status_code == 200:
-                        return response.json()
+                        raw_data = response.json()
+                        return FieldMapper.normalize_athena_data(raw_data)  # Normalize field names
                     else:
                         if DEBUG:
                             self.output.add_line(f"Filtered ticket data failed: {response.status_code} - {response.text}")
@@ -201,7 +204,8 @@ class Athena:
                 try:
                     response = requests.get(url, headers=headers, timeout=30)
                     if response.status_code == 200:
-                        return response.json()
+                        raw_data = response.json()
+                        return FieldMapper.normalize_athena_data(raw_data)  # Normalize field names
                     else:
                         if DEBUG:
                             self.output.add_line(f"{prefix} ticket data failed: {response.status_code} - {response.text}")

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from output import Output
 from parse_json import ParseJson
+from field_mapping import FieldMapper
 
 load_dotenv()
 
@@ -145,9 +146,34 @@ class Databricks:
                     if 'result' in result_data and 'data_array' in result_data['result']:
                         table_records = result_data['result']['data_array']
                         columns = [col['name'] for col in result_data['result'].get('columns', [])]
+
+                        # Fallback column names when API doesn't provide them (SELECT * queries issue)
+                        if not columns and table_records and len(table_records[0]) == 33:
+                            if DEBUG:
+                                self.output.add_line("Using fallback column names for athena_tickets table")
+                            columns = [
+                                'TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title',
+                                'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName',
+                                'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area',
+                                'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments',
+                                'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
+                            ]
+
                         if DEBUG:
                             self.output.add_line(f"Query executed successfully, returned {len(table_records)} records, columns found: {len(columns)}")
-                        return {"status": "success", "columns": columns, "data": table_records, "count": len(table_records)}
+
+                        # Convert list rows to normalized dictionaries
+                        normalized_data = []
+                        for row in table_records:
+                            if len(row) != len(columns):
+                                if DEBUG:
+                                    self.output.add_line(f"Row length {len(row)} doesn't match columns {len(columns)}")
+                                continue
+                            row_dict = dict(zip(columns, row))
+                            normalized_row = FieldMapper.normalize_databricks_data(row_dict)
+                            normalized_data.append(normalized_row)
+
+                        return {"status": "success", "data": normalized_data, "count": len(normalized_data)}
                     else:
                         if DEBUG:
                             self.output.add_line("Query succeeded but no data returned")

@@ -101,34 +101,23 @@ def semantic_search(description, max_results=5):
         output.add_line("No ticket details retrieved from Databricks")
         return []
 
-    # Define column names based on the expected order from Databricks
-    col_names = [
-        'TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title',
-        'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName',
-        'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area',
-        'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments',
-        'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
-    ]
-
     tickets = []
-    for row in result['data']:
-        ticket_dict = dict(zip(col_names, row))
-
-        # Map to expected ticket format (same as exact_description_search)
+    for ticket_dict in result['data']:
+        # Map to expected ticket format using normalized field names
         ticket = {
-            'id': ticket_dict.get('Id'),
-            'title': ticket_dict.get('Title'),
-            'description': ticket_dict.get('Description'),
-            'statusValue': ticket_dict.get('Status'),
-            'priorityValue': ticket_dict.get('Priority'),
-            'assignedTo_DisplayName': ticket_dict.get('AssignedToUserName', ''),
-            'affectedUser_DisplayName': ticket_dict.get('AffectedUserName', ''),
-            'createdDate': ticket_dict.get('CreatedDate'),
-            'completedDate': ticket_dict.get('ResolvedDate'),
-            'locationValue': ticket_dict.get('Location'),
-            'sourceValue': ticket_dict.get('Source'),
-            'supportGroupValue': ticket_dict.get('SupportGroup'),
-            'resolutionNotes': ticket_dict.get('ResolutionNotes')
+            'id': ticket_dict.get('id'),
+            'title': ticket_dict.get('title'),
+            'description': ticket_dict.get('description'),
+            'statusValue': ticket_dict.get('status'),
+            'priorityValue': ticket_dict.get('priority'),
+            'assignedTo_DisplayName': ticket_dict.get('assigned_to', ''),
+            'affectedUser_DisplayName': ticket_dict.get('affected_user', ''),
+            'createdDate': ticket_dict.get('created_at'),
+            'completedDate': ticket_dict.get('resolved_at'),
+            'locationValue': ticket_dict.get('location'),
+            'sourceValue': ticket_dict.get('source'),
+            'supportGroupValue': ticket_dict.get('support_group'),
+            'resolutionNotes': ticket_dict.get('resolution_notes')
         }
         tickets.append(ticket)
 
@@ -233,34 +222,23 @@ def ticket_vector_search(ticket_number, max_results=5):
         output.add_line("No ticket details retrieved from Databricks")
         return []
 
-    # Define column names based on the expected order from Databricks
-    col_names = [
-        'TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title',
-        'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName',
-        'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area',
-        'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments',
-        'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
-    ]
-
     tickets = []
-    for row in result['data']:
-        ticket_dict = dict(zip(col_names, row))
-
-        # Map to expected ticket format (same as exact_description_search)
+    for ticket_dict in result['data']:
+        # Map to expected ticket format using normalized field names
         ticket = {
-            'id': ticket_dict.get('Id'),
-            'title': ticket_dict.get('Title'),
-            'description': ticket_dict.get('Description'),
-            'statusValue': ticket_dict.get('Status'),
-            'priorityValue': ticket_dict.get('Priority'),
-            'assignedTo_DisplayName': ticket_dict.get('AssignedToUserName', ''),
-            'affectedUser_DisplayName': ticket_dict.get('AffectedUserName', ''),
-            'createdDate': ticket_dict.get('CreatedDate'),
-            'completedDate': ticket_dict.get('ResolvedDate'),
-            'locationValue': ticket_dict.get('Location'),
-            'sourceValue': ticket_dict.get('Source'),
-            'supportGroupValue': ticket_dict.get('SupportGroup'),
-            'resolutionNotes': ticket_dict.get('ResolutionNotes')
+            'id': ticket_dict.get('id'),
+            'title': ticket_dict.get('title'),
+            'description': ticket_dict.get('description'),
+            'statusValue': ticket_dict.get('status'),
+            'priorityValue': ticket_dict.get('priority'),
+            'assignedTo_DisplayName': ticket_dict.get('assigned_to', ''),
+            'affectedUser_DisplayName': ticket_dict.get('affected_user', ''),
+            'createdDate': ticket_dict.get('created_at'),
+            'completedDate': ticket_dict.get('resolved_at'),
+            'locationValue': ticket_dict.get('location'),
+            'sourceValue': ticket_dict.get('source'),
+            'supportGroupValue': ticket_dict.get('support_group'),
+            'resolutionNotes': ticket_dict.get('resolution_notes')
         }
         tickets.append(ticket)
 
@@ -280,34 +258,23 @@ def exact_description_search(description, max_results=5):
     if not result or result.get('status') != 'success' or not result.get('data'):
         return []
 
-    # Define column names based on the expected order from Databricks
-    col_names = [
-        'TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title',
-        'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName',
-        'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area',
-        'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments',
-        'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
-    ]
-
     tickets = []
-    for row in result['data']:
-        ticket_dict = dict(zip(col_names, row))
-
-        # Map to expected ticket format
+    for ticket_dict in result['data']:
+        # Map to expected ticket format using normalized field names
         ticket = {
-            'id': ticket_dict.get('Id'),
-            'title': ticket_dict.get('Title'),
-            'description': ticket_dict.get('Description'),
-            'statusValue': ticket_dict.get('Status'),
-            'priorityValue': ticket_dict.get('Priority'),
-            'assignedTo_DisplayName': ticket_dict.get('AssignedToUserName', ''),
-            'affectedUser_DisplayName': ticket_dict.get('AffectedUserName', ''),
-            'createdDate': ticket_dict.get('CreatedDate'),
-            'completedDate': ticket_dict.get('ResolvedDate'),
-            'locationValue': ticket_dict.get('Location'),
-            'sourceValue': ticket_dict.get('Source'),
-            'supportGroupValue': ticket_dict.get('SupportGroup'),
-            'resolutionNotes': ticket_dict.get('ResolutionNotes')
+            'id': ticket_dict.get('id'),
+            'title': ticket_dict.get('title'),
+            'description': ticket_dict.get('description'),
+            'statusValue': ticket_dict.get('status'),
+            'priorityValue': ticket_dict.get('priority'),
+            'assignedTo_DisplayName': ticket_dict.get('assigned_to', ''),
+            'affectedUser_DisplayName': ticket_dict.get('affected_user', ''),
+            'createdDate': ticket_dict.get('created_at'),
+            'completedDate': ticket_dict.get('resolved_at'),
+            'locationValue': ticket_dict.get('location'),
+            'sourceValue': ticket_dict.get('source'),
+            'supportGroupValue': ticket_dict.get('support_group'),
+            'resolutionNotes': ticket_dict.get('resolution_notes')
         }
         tickets.append(ticket)
 
