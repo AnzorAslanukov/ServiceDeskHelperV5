@@ -31,6 +31,16 @@
   --ticket-btn-bg-off: #adb5bd;
   --ticket-btn-icon-on: #ffffff;
   --ticket-btn-icon-off: #6c757d;
+  /* Assignment button colors (single ticket) */
+  --single-ticket-btn-bg-on: #007bff;
+  --single-ticket-btn-bg-off: #adb5bd;
+  --single-ticket-btn-icon-on: #ffffff;
+  --single-ticket-btn-icon-off: #6c757d;
+  /* Multiple tickets button colors */
+  --multiple-tickets-btn-bg-on: #007bff;
+  --multiple-tickets-btn-bg-off: #adb5bd;
+  --multiple-tickets-btn-icon-on: #ffffff;
+  --multiple-tickets-btn-icon-off: #6c757d;
 }
 
 [data-bs-theme="dark"] {
@@ -66,6 +76,16 @@
   --ticket-btn-bg-off: #495057;
   --ticket-btn-icon-on: #ffffff;
   --ticket-btn-icon-off: #adb5bd;
+  /* Assignment button dark mode colors (single ticket) */
+  --single-ticket-btn-bg-on: #0d6efd;
+  --single-ticket-btn-bg-off: #495057;
+  --single-ticket-btn-icon-on: #ffffff;
+  --single-ticket-btn-icon-off: #adb5bd;
+  /* Multiple tickets button dark mode colors */
+  --multiple-tickets-btn-bg-on: #0d6efd;
+  --multiple-tickets-btn-bg-off: #495057;
+  --multiple-tickets-btn-icon-on: #ffffff;
+  --multiple-tickets-btn-icon-off: #adb5bd;
 }
 
 /* Apply theme variables */
@@ -257,6 +277,56 @@ body {
 }
 
 .ticket-btn:active {
+  background-color: #e9ecef !important;
+}
+
+.single-ticket-btn {
+  aspect-ratio: 1;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border-color);
+  background-color: var(--single-ticket-btn-bg-on);
+  color: var(--single-ticket-btn-icon-on);
+  padding: 8px;
+  border-radius: 50%;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.single-ticket-btn.off {
+  background-color: var(--single-ticket-btn-bg-off);
+  color: var(--single-ticket-btn-icon-off);
+}
+
+.single-ticket-btn:hover {
+  opacity: 0.8;
+}
+
+.single-ticket-btn:active {
+  background-color: #e9ecef !important;
+}
+
+.multiple-tickets-btn {
+  aspect-ratio: 1;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border-color);
+  background-color: var(--multiple-tickets-btn-bg-on);
+  color: var(--multiple-tickets-btn-icon-on);
+  padding: 8px;
+  border-radius: 50%;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.multiple-tickets-btn.off {
+  background-color: var(--multiple-tickets-btn-bg-off);
+  color: var(--multiple-tickets-btn-icon-off);
+}
+
+.multiple-tickets-btn:hover {
+  opacity: 0.8;
+}
+
+.multiple-tickets-btn:active {
   background-color: #e9ecef !important;
 }
 

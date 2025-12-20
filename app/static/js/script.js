@@ -376,16 +376,111 @@ document.addEventListener('DOMContentLoaded', function() {
   const assignmentBtn = document.getElementById('ticket-assignment-nav-btn');
   if (assignmentBtn) {
     assignmentBtn.addEventListener('click', function() {
-      // Remove toggle buttons
+      // Remove any existing toggle buttons (search or assignment)
       const toggleDiv = document.querySelector('.main-content .d-flex');
       if (toggleDiv) toggleDiv.remove();
+
+      // Add assignment toggle buttons if not present
+      const assignmentToggleDiv = document.createElement('div');
+      assignmentToggleDiv.className = 'd-flex justify-content-center align-items-center mb-4';
+      assignmentToggleDiv.innerHTML = `
+        <button id="single_ticket-toggle" class="btn single-ticket-btn rounded-circle" aria-label="Single Ticket Toggle">
+          <img id="single_ticket-icon" src="/static/images/single_ticket_icon_on_light.svg" alt="Single Ticket Toggle" class="img-fluid">
+        </button>
+        <button id="multiple_tickets-toggle" class="btn multiple-tickets-btn rounded-circle" aria-label="Multiple Tickets Toggle" style="margin-left: 0.5rem;">
+          <img id="multiple_tickets-icon" src="/static/images/multiple_tickets_icon_off_light.svg" alt="Multiple Tickets Toggle" class="img-fluid">
+        </button>
+      `;
+      const mainContent = document.querySelector('.main-content');
+      const searchGroup = mainContent.querySelector('.input-group');
+      if (searchGroup) {
+        searchGroup.insertAdjacentElement('afterend', assignmentToggleDiv);
+      }
+
       // Remove content area
       const contentArea = document.getElementById('content-area');
       if (contentArea) contentArea.remove();
-      // Update placeholder
+
+      // Add back content area if not present
+      if (!document.getElementById('content-area')) {
+        const newContentArea = document.createElement('div');
+        newContentArea.id = 'content-area';
+        newContentArea.className = 'mt-4';
+        newContentArea.innerHTML = '<!-- Assignment content will go here -->';
+        mainContent.appendChild(newContentArea);
+      }
+
+      // Initialize assignment toggle button instances
+      const singleTicket = ToggleButton.loadPreference(true, 'singleTicketOn', 'single_ticket_icon', 'single_ticket-icon', 'single_ticket-toggle');
+      const multipleTickets = ToggleButton.loadPreference(false, 'multipleTicketsOn', 'multiple_tickets_icon', 'multiple_tickets-icon', 'multiple_tickets-toggle');
+
+      // Set placeholder based on currently active assignment toggle
       const searchInput = document.getElementById('ticket-search-input');
       if (searchInput) {
-        searchInput.placeholder = 'Get advice on ticket assignment. Enter a ticket number.';
+        if (singleTicket.isOn) {
+          searchInput.placeholder = 'Get advice on ticket assignment. Enter a ticket number.';
+        } else if (multipleTickets.isOn) {
+          searchInput.placeholder = 'Batch ticket assignment will be available in a future update.';
+        }
+      }
+
+      // Re-attach theme change listener for assignment toggles
+      document.addEventListener('themeChanged', function(e) {
+        const isDark = e.detail.isDark;
+        singleTicket.applyIcon(isDark);
+        multipleTickets.applyIcon(isDark);
+      });
+
+      // Single ticket toggle button functionality
+      const singleTicketButton = document.getElementById('single_ticket-toggle');
+      if (singleTicketButton) {
+        singleTicketButton.addEventListener('click', function() {
+          if (singleTicket.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on single ticket, turn off multiple tickets
+            singleTicket.isOn = true;
+            multipleTickets.isOn = false;
+            // Apply changes
+            singleTicket.applyIcon(ToggleButton.currentThemeIsDark());
+            multipleTickets.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            singleTicket.savePreference();
+            multipleTickets.savePreference();
+            // Update search placeholder
+            const searchInput = document.getElementById('ticket-search-input');
+            if (searchInput) {
+              searchInput.placeholder = 'Get advice on ticket assignment. Enter a ticket number.';
+            }
+          }
+        });
+      }
+
+      // Multiple tickets toggle button functionality
+      const multipleTicketsButton = document.getElementById('multiple_tickets-toggle');
+      if (multipleTicketsButton) {
+        multipleTicketsButton.addEventListener('click', function() {
+          if (multipleTickets.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on multiple tickets, turn off single ticket
+            multipleTickets.isOn = true;
+            singleTicket.isOn = false;
+            // Apply changes
+            multipleTickets.applyIcon(ToggleButton.currentThemeIsDark());
+            singleTicket.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            multipleTickets.savePreference();
+            singleTicket.savePreference();
+            // Update search placeholder
+            const searchInput = document.getElementById('ticket-search-input');
+            if (searchInput) {
+              searchInput.placeholder = 'Batch ticket assignment will be available in a future update.';
+            }
+          }
+        });
       }
     });
   }
@@ -394,11 +489,14 @@ document.addEventListener('DOMContentLoaded', function() {
   const searchNavBtn = document.getElementById('ticket-search-nav-btn');
   if (searchNavBtn) {
     searchNavBtn.addEventListener('click', function() {
-      // Add back toggle buttons if not present
-      if (!document.querySelector('.main-content .d-flex')) {
-        const toggleDiv = document.createElement('div');
-        toggleDiv.className = 'd-flex justify-content-center align-items-center mb-4';
-        toggleDiv.innerHTML = `
+      // Remove any existing toggle buttons (search or assignment)
+      const existingToggleDiv = document.querySelector('.main-content .d-flex');
+      if (existingToggleDiv) existingToggleDiv.remove();
+
+      // Now add back search toggle buttons
+      const toggleDiv = document.createElement('div');
+      toggleDiv.className = 'd-flex justify-content-center align-items-center mb-4';
+      toggleDiv.innerHTML = `
           <button id="phone-toggle" class="btn phone-btn rounded-circle" aria-label="Phone Toggle">
             <img id="phone-icon" src="/static/images/phone_icon_on_light.svg" alt="Phone Toggle" class="img-fluid">
           </button>
@@ -412,11 +510,10 @@ document.addEventListener('DOMContentLoaded', function() {
             <img id="ticket-icon" src="/static/images/ticket_icon_off_light.svg" alt="Ticket Toggle" class="img-fluid">
           </button>
         `;
-        const mainContent = document.querySelector('.main-content');
-        const searchGroup = mainContent.querySelector('.input-group');
-        if (searchGroup) {
-          searchGroup.insertAdjacentElement('afterend', toggleDiv);
-        }
+      const mainContent = document.querySelector('.main-content');
+      const searchGroup = mainContent.querySelector('.input-group');
+      if (searchGroup) {
+        searchGroup.insertAdjacentElement('afterend', toggleDiv);
       }
       // Add back content area if not present
       if (!document.getElementById('content-area')) {
