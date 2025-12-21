@@ -302,8 +302,14 @@ def get_ticket_advice(ticket_number):
 
     original_data = original_result['result'][0]
 
+    if DEBUG:
+        output.add_line(f"original_data:\n{original_data}")
+
     # Get similar tickets
     similar_tickets = ticket_vector_search(ticket_number, max_results=5)
+
+    if DEBUG:
+        output.add_line(f"similar_tickets:\n{similar_tickets}")
 
     # Extract fields for original
     def extract_fields(ticket):
@@ -338,13 +344,21 @@ def get_ticket_advice(ticket_number):
     output.add_line("Assignment Recommendations:")
     if "error" in assignment_result:
         output.add_line(f"Error: {assignment_result['error']}")
+        return {'error': assignment_result['error']}
     else:
         output.add_line(f"Recommended Support Group: {assignment_result.get('recommended_support_group', 'N/A')}")
         output.add_line(f"Recommended Priority Level: {assignment_result.get('recommended_priority_level', 'N/A')}")
         output.add_line("Detailed Explanation:")
         output.add_line(assignment_result.get('detailed_explanation', 'N/A'))
 
-    return None
+        # Return the structured data for frontend display
+        return {
+            'original_data': original_data,
+            'similar_tickets': similar_tickets,
+            'recommended_support_group': assignment_result.get('recommended_support_group'),
+            'recommended_priority_level': assignment_result.get('recommended_priority_level'),
+            'detailed_explanation': assignment_result.get('detailed_explanation')
+        }
 
 @app.route('/api/search-tickets', methods=['POST'])
 def search_tickets():
@@ -437,10 +451,13 @@ def api_get_ticket_advice():
         ticket_number = data['ticketId']
         if DEBUG:
             output.add_line(f"Starting get_ticket_advice for {ticket_number}")
-        get_ticket_advice(ticket_number)
+        result = get_ticket_advice(ticket_number)
         if DEBUG:
             output.add_line(f"Finished get_ticket_advice for {ticket_number}")
-        return jsonify({})
+        if result:
+            return jsonify(result)
+        else:
+            return jsonify({'error': 'Could not retrieve ticket advice'}), 500
     else:
         return jsonify({'error': 'Missing ticketId'}), 400
 
