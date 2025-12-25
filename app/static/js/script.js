@@ -1,5 +1,81 @@
 console.log('Script loaded. ToggleButton available:', typeof ToggleButton);
 
+function createSearchToggleButtons() {
+    const container = document.getElementById('search-toggles-container');
+
+    // Create the flex container div
+    const toggleDiv = document.createElement('div');
+    toggleDiv.className = 'd-flex justify-content-center align-items-center';
+
+    // Define button configurations
+    const buttonConfigs = [
+        {
+            id: 'phone-toggle',
+            className: 'btn phone-btn rounded-circle',
+            ariaLabel: 'Phone Toggle',
+            imgId: 'phone-icon',
+            imgSrc: '/static/images/phone_icon_on_light.svg',
+            imgAlt: 'Phone Toggle',
+            marginLeft: ''
+        },
+        {
+            id: 'match-toggle',
+            className: 'btn match-btn rounded-circle',
+            ariaLabel: 'Match Toggle',
+            imgId: 'match-icon',
+            imgSrc: '/static/images/sentence_match_icon_off_light.svg',
+            imgAlt: 'Match Toggle',
+            marginLeft: 'margin-left: 0.5rem;'
+        },
+        {
+            id: 'semantic-toggle',
+            className: 'btn semantic-btn rounded-circle',
+            ariaLabel: 'Semantic Toggle',
+            imgId: 'semantic-icon',
+            imgSrc: '/static/images/abc_icon_off_light.svg',
+            imgAlt: 'Semantic Toggle',
+            marginLeft: 'margin-left: 0.5rem;'
+        },
+        {
+            id: 'ticket-toggle',
+            className: 'btn ticket-btn rounded-circle',
+            ariaLabel: 'Ticket Toggle',
+            imgId: 'ticket-icon',
+            imgSrc: '/static/images/ticket_icon_off_light.svg',
+            imgAlt: 'Ticket Toggle',
+            marginLeft: 'margin-left: 0.5rem;'
+        }
+    ];
+
+    // Create and append each button
+    buttonConfigs.forEach(config => {
+        const button = document.createElement('button');
+        button.id = config.id;
+        button.className = config.className;
+        button.setAttribute('aria-label', config.ariaLabel);
+        button.style.cssText = config.marginLeft;
+
+        const img = document.createElement('img');
+        img.id = config.imgId;
+        img.src = config.imgSrc;
+        img.alt = config.imgAlt;
+        img.className = 'img-fluid';
+
+        button.appendChild(img);
+        toggleDiv.appendChild(button);
+    });
+
+    // Add to container
+    container.appendChild(toggleDiv);
+
+    // Return the button elements for any initialization that needs them
+    return {
+        phoneBtn: container.querySelector('#phone-toggle'),
+        matchBtn: container.querySelector('#match-toggle'),
+        semanticBtn: container.querySelector('#semantic-toggle'),
+        ticketBtn: container.querySelector('#ticket-toggle')
+    };
+}
 
 async function copyToClipboard(text) {
   try {
@@ -259,7 +335,7 @@ function displayOriginalTicket(data) {
   `;
 
   html += '</div>';
-  container.innerHTML = html;
+  container.innerHTML += html;
 
   // Initialize Bootstrap tooltips for copy buttons
   const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -270,6 +346,9 @@ function displayOriginalTicket(data) {
 
 // Initialize phone, match, semantic, and ticket on page load
 document.addEventListener('DOMContentLoaded', function() {
+  // Create and initialize search toggle buttons
+  const searchButtons = createSearchToggleButtons();
+
   const phone = ToggleButton.loadPreference(true, 'phoneOn', 'phone_icon', 'phone-icon', 'phone-toggle');
   const match = ToggleButton.loadPreference(false, 'matchOn', 'sentence_match_icon', 'match-icon', 'match-toggle');
   const semantic = ToggleButton.loadPreference(false, 'semanticOn', 'abc_icon', 'semantic-icon', 'semantic-toggle');

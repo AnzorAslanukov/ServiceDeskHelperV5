@@ -45,19 +45,8 @@
                         <i class="bi bi-search"></i>
                     </button>
                 </div>
-                <div class="d-flex justify-content-center align-items-center mb-4">
-                    <button id="phone-toggle" class="btn phone-btn rounded-circle" aria-label="Phone Toggle">
-                        <img id="phone-icon" src="{{ url_for('static', filename='images/phone_icon_on_light.svg') }}" alt="Phone Toggle" class="img-fluid">
-                    </button>
-                    <button id="match-toggle" class="btn match-btn rounded-circle" aria-label="Match Toggle" style="margin-left: 0.5rem;">
-                        <img id="match-icon" src="{{ url_for('static', filename='images/sentence_match_icon_off_light.svg') }}" alt="Match Toggle" class="img-fluid">
-                    </button>
-                    <button id="semantic-toggle" class="btn semantic-btn rounded-circle" aria-label="Semantic Toggle" style="margin-left: 0.5rem;">
-                        <img id="semantic-icon" src="{{ url_for('static', filename='images/abc_icon_off_light.svg') }}" alt="Semantic Toggle" class="img-fluid">
-                    </button>
-                    <button id="ticket-toggle" class="btn ticket-btn rounded-circle" aria-label="Ticket Toggle" style="margin-left: 0.5rem;">
-                        <img id="ticket-icon" src="{{ url_for('static', filename='images/ticket_icon_off_light.svg') }}" alt="Ticket Toggle" class="img-fluid">
-                    </button>
+                <div id="search-toggles-container" class="mb-4">
+                    <!-- Search toggle buttons will be inserted here by JavaScript -->
                 </div>
                 <div id="content-area" class="mt-4">
                     <!-- Dynamic content will go here -->
