@@ -126,6 +126,17 @@ class Athena:
         }
 
         if view:
+            # Determine ticket type and appropriate view URL
+            prefix = ticket_number[:2].upper()
+            if prefix == "IR":
+                url = self.irv_url
+            elif prefix == "SR":
+                url = self.srv_url
+            else:
+                if DEBUG:
+                    self.output.add_line(f"View not supported for ticket type: {prefix}")
+                return None
+
             # Replace placeholder
             json_str = self.json_template.replace('{{TICKET_ID}}', ticket_number)
 
@@ -139,7 +150,7 @@ class Athena:
             headers['Content-Type'] = 'application/json'
 
             try:
-                response = requests.post(self.irv_url, headers=headers, json=payload, timeout=30)
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
                 if response.status_code == 200:
                     raw_data = response.json()
                     return FieldMapper.normalize_athena_data(raw_data)  # Normalize field names
@@ -352,14 +363,14 @@ if __name__ == "__main__" and TEST_RUN:
 
         # Test get_ticket_data
         # ticket_data = athena_client.get_ticket_data("IR10154685", view=True)
-        # ticket_data = athena_client.get_ticket_data("SR10158406")
-        ticket_data = athena_client.get_validation_tickets() 
+        ticket_data = athena_client.get_ticket_data("SR10158406", view=True)
+        # ticket_data = athena_client.get_validation_tickets() 
         # filters = {"contactMethod":"2156871743"}
         # ticket_data = athena_client.get_ticket_data(conditions=filters)
         if ticket_data: 
             athena_client.output.add_line("Ticket data retrieved:") 
-            # athena_client.output.add_line(json.dumps(ticket_data, indent=4)) 
-            for ticket in ticket_data:
-                athena_client.output.add_line(ticket) 
+            athena_client.output.add_line(json.dumps(ticket_data, indent=4)) 
+            # for ticket in ticket_data:
+            #     athena_client.output.add_line(ticket) 
         else: 
             athena_client.output.add_line("Failed to retrieve ticket data")
