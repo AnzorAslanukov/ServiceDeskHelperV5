@@ -567,6 +567,19 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  // Ticket search input Enter key functionality
+  if (searchInput) {
+    searchInput.addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault(); // Prevent default form submission
+        const searchButton = document.getElementById('ticket-search-button');
+        if (searchButton) {
+          searchButton.click(); // Trigger the search button click
+        }
+      }
+    });
+  }
+
   // Ticket search button functionality
   const searchButton = document.getElementById('ticket-search-button');
   if (searchButton) {
@@ -808,7 +821,7 @@ document.addEventListener('DOMContentLoaded', function() {
       phone.applyIcon(ToggleButton.currentThemeIsDark());
       match.applyIcon(ToggleButton.currentThemeIsDark());
       semantic.applyIcon(ToggleButton.currentThemeIsDark());
-      ticket.applyIcon(ToggleButton.currentThemeIsDark());
+      ticket.applyIcon(ToggleButton.currentThemeIsDark()); 
       singleTicket.applyIcon(ToggleButton.currentThemeIsDark());
       multipleTickets.applyIcon(ToggleButton.currentThemeIsDark());
 

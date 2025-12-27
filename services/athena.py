@@ -13,9 +13,9 @@ from field_mapping import FieldMapper
 
 load_dotenv()
 
-DEBUG = True  # Global debug setting for print statements
-TEST_RUN = False  # Set to True to enable the test section when running the file
-PROCESS_INDICATORS = False  # Enable/disable process loading indicator print statements
+DEBUG = True  # Global debug setting for print statements 
+TEST_RUN = True  # Set to True to enable the test section when running the file 
+PROCESS_INDICATORS = False  # Enable/disable process loading indicator print statements 
 
 class Athena:
 
@@ -36,6 +36,7 @@ class Athena:
         self.base_url = os.getenv('ATHENA_BASE_URL')
         self.auth_url = os.getenv('ATHENA_AUTH_URL')
         self.irv_url= os.getenv('ATHENA_INCIDENT_VIEW_URL')
+        self.srv_url = os.getenv('ATHENA_SERVICEREQUEST_VIEW_URL')
         self.ir_url = os.getenv('ATHENA_INCIDENT_URL')
         self.sr_url = os.getenv('ATHENA_SERVICEREQUEST_URL')
         self.cr_url = os.getenv('ATHENA_CHANGEREQUEST_URL')
@@ -215,6 +216,130 @@ class Athena:
                         self.output.add_line(f"Network error: {str(e)}")
                     return None
 
+    def get_validation_tickets(self):
+        """
+        Get all ticket numbers from the 'Validation' support group.
+
+        Queries active IR tickets and filters by support_group client-side.
+        Queries active SR tickets with server-side filtering by support_group.
+
+        Returns:
+            list: Combined list of ticket numbers from both types
+            None: If requests fail
+        """
+        if not self.token:
+            self.token = self.get_token()
+            if not self.token:
+                return None
+
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Content-Type': 'application/json'
+        }
+
+        # Payload for IR tickets: get active tickets, then filter by support_group client-side
+        ir_payload = [
+            {
+                "condition": "and",
+                "filters": [
+                    {
+                        "condition": "and",
+                        "property": "status",
+                        "operator": "eq",
+                        "value": "5e2d3932-ca6d-1515-7310-6f58584df73e"
+                    }
+                ]
+            }
+        ]
+
+        all_ticket_numbers = []
+
+        # Get incident report tickets from Validation group
+        try:
+            if DEBUG:
+                self.output.add_line("Querying all incident reports and filtering for Validation support group")
+
+            response = requests.post(self.irv_url, headers=headers, json=ir_payload, timeout=120)
+
+            if response.status_code == 200:
+                raw_data = response.json()
+                normalized_data = FieldMapper.normalize_athena_data(raw_data)
+
+                ir_count = 0
+                if 'result' in normalized_data:
+                    for ticket in normalized_data['result']:
+                        # Filter client-side by support_group
+                        if ticket.get('support_group') == 'Validation' and 'id' in ticket:
+                            all_ticket_numbers.append(ticket['id'])
+                            ir_count += 1
+
+                if DEBUG:
+                    self.output.add_line(f"Found {ir_count} IR validation tickets")
+
+            else:
+                if DEBUG:
+                    self.output.add_line(f"IR tickets query failed: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            if DEBUG:
+                self.output.add_line(f"Error getting IR validation tickets: {str(e)}")
+            return None
+
+        # Get service request tickets from Validation group (server-side filter)
+        sr_payload = [
+            {
+                "condition": "and",
+                "filters": [
+                    {
+                        "condition": "and",
+                        "property": "status",
+                        "operator": "eq",
+                        "value": "72b55e17-1c7d-b34c-53ae-f61f8732e425"
+                    },
+                    {
+                        "condition": "and",
+                        "property": "supportgroup",
+                        "operator": "eq",
+                        "value": "c954d465-65a0-9e43-9b02-b353e87bdb37"
+                    }
+                ]
+            }
+        ]
+
+        try:
+            if DEBUG:
+                self.output.add_line("Querying service requests filtered for Validation support group server-side")
+
+            response = requests.post(self.srv_url, headers=headers, json=sr_payload, timeout=120)
+
+            if response.status_code == 200:
+                raw_data = response.json()
+                normalized_data = FieldMapper.normalize_athena_data(raw_data)
+
+                sr_count = 0
+                if 'result' in normalized_data:
+                    for ticket in normalized_data['result']:
+                        if 'id' in ticket:
+                            all_ticket_numbers.append(ticket['id'])
+                            sr_count += 1
+
+                if DEBUG:
+                    self.output.add_line(f"Found {sr_count} SR validation tickets")
+
+            else:
+                if DEBUG:
+                    self.output.add_line(f"SR tickets query failed: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            if DEBUG:
+                self.output.add_line(f"Error getting SR validation tickets: {str(e)}")
+            return None
+
+        if DEBUG:
+            self.output.add_line(f"Total validation tickets found: {len(all_ticket_numbers)}")
+
+        return all_ticket_numbers
+
 
 if __name__ == "__main__" and TEST_RUN:
     # Test instance creation, token retrieval, and incident ticket lookup
@@ -226,11 +351,15 @@ if __name__ == "__main__" and TEST_RUN:
         athena_client.output.add_line("Token obtained successfully")
 
         # Test get_ticket_data
-        ticket_data = athena_client.get_ticket_data("IR10107172", view=True)
+        # ticket_data = athena_client.get_ticket_data("IR10154685", view=True)
+        # ticket_data = athena_client.get_ticket_data("SR10158406")
+        ticket_data = athena_client.get_validation_tickets() 
         # filters = {"contactMethod":"2156871743"}
         # ticket_data = athena_client.get_ticket_data(conditions=filters)
-        if ticket_data:
-            athena_client.output.add_line("Ticket data retrieved:")
-            athena_client.output.add_line(json.dumps(ticket_data, indent=4))
-        else:
+        if ticket_data: 
+            athena_client.output.add_line("Ticket data retrieved:") 
+            # athena_client.output.add_line(json.dumps(ticket_data, indent=4)) 
+            for ticket in ticket_data:
+                athena_client.output.add_line(ticket) 
+        else: 
             athena_client.output.add_line("Failed to retrieve ticket data")
