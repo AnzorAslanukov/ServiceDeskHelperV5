@@ -29,6 +29,7 @@ ATHENA_TO_STANDARD = {
     'createdDate': 'created_at',
     'completedDate': 'completed_at',
     'resolvedDate': 'resolved_at',
+    'closedDate': 'closed_at',
     'lastModified': 'last_modified_at',
 
     # Location
@@ -100,9 +101,9 @@ DATABRICKS_TO_STANDARD = {
     'LastModifiedDate': 'last_modified_at',
 
     # Location
-    'Location': 'location',
-    'Floor': 'floor',
-    'Room': 'room',
+    'Location': 'location', 
+    'Floor': 'floor', 
+    'Room': 'room', 
 
     # Assignment
     'AssignedToUserName': 'assigned_to',

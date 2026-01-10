@@ -370,15 +370,44 @@ def search_tickets():
         try:
             athena = Athena()
             result = athena.get_ticket_data(conditions={
-                'contactMethod': search_value, 
+                'contactMethod': search_value,
                 'contactMethodContains': False  # Use eq operator
             })
-            
+
             if result:
-                return jsonify(result)
+                # Map Athena fields to frontend format (same as other searches)
+                tickets = []
+                for ticket_dict in result['result']:
+                    ticket = {
+                        'id': ticket_dict.get('id'),
+                        'title': ticket_dict.get('title'),
+                        'description': ticket_dict.get('description'),
+                        'statusValue': ticket_dict.get('status'),
+                        'priorityValue': ticket_dict.get('priority'),
+                        'assignedTo_DisplayName': ticket_dict.get('assigned_to'),
+                        'affectedUser_DisplayName': ticket_dict.get('affected_user'),
+                        'createdDate': ticket_dict.get('created_at'),
+                        'completedDate': ticket_dict.get('completed_at'),
+                        'locationValue': ticket_dict.get('location'),
+                        'sourceValue': ticket_dict.get('source'),
+                        'supportGroupValue': ticket_dict.get('support_group'),
+                        'resolutionNotes': ticket_dict.get('resolution_notes'),
+                        'contactMethod': ticket_dict.get('contact_method')
+                    }
+                    tickets.append(ticket)
+
+                # Return consistent response format
+                response = {
+                    'currentPage': result.get('currentPage', 1),
+                    'resultCount': len(tickets),
+                    'pageSize': result.get('pageSize', 1000),
+                    'hasMoreResults': result.get('hasMoreResults', False),
+                    'result': tickets
+                }
+                return jsonify(response)
             else:
                 return jsonify({'error': 'No results found'}), 404
-                
+
         except Exception as e:
             return jsonify({'error': str(e)}), 500
             
