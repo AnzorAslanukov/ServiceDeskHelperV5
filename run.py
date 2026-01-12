@@ -27,6 +27,10 @@ def favicon():
 def index():
     return render_template('index.html')
 
+@app.route('/metrics')
+def metrics():
+    return 'OK', 200
+
 def semantic_search(description, max_results=5):
     """
     Perform semantic search by embedding the description and finding
