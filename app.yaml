@@ -1,5 +1,6 @@
-command:
-  - gunicorn
-  - --bind
-  - 0.0.0.0:8080
-  - wsgi:app
+command: [
+  "flask",
+  "--app",
+  "run.py",
+  "run"
+]
