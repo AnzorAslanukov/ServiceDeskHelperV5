@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from output import Output
 from parse_json import ParseJson
 from field_mapping import FieldMapper
+from embedding_model import EmbeddingModel
 
 load_dotenv()
 
@@ -159,6 +160,16 @@ class Databricks:
                                 'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
                             ]
 
+                        # Fallback for aggregate queries when no columns are provided
+                        if not columns and table_records and len(table_records[0]) == 1:
+                            columns = ['count']
+
+                        # Fallback for similarity search queries (id, similarity)
+                        if not columns and table_records and len(table_records[0]) == 2:
+                            if DEBUG:
+                                self.output.add_line("Using fallback column names for similarity search query")
+                            columns = ['id', 'similarity']
+
                         if DEBUG:
                             self.output.add_line(f"Query executed successfully, returned {len(table_records)} records, columns found: {len(columns)}")
 
@@ -205,6 +216,56 @@ class Databricks:
             if DEBUG:
                 self.output.add_line(f"Unexpected error during SQL execution: {str(e)}")
             return {"status": "error", "message": f"Unexpected error: {str(e)}"}
+
+    def similarity_search(self, table_name: str, query_text: str, limit: int = 5):
+        """
+        Perform vector similarity search on the specified table.
+        Generates embedding for query_text and finds similar records by cosine similarity.
+
+        Args:
+            table_name (str): Full table path like 'catalog.schema.table' (must have 'id' and 'ticket_embedding' columns)
+            query_text (str): Input text to search for similarity
+            limit (int): Number of top similar results to return (default: 5)
+
+        Returns:
+            list: List of dictionaries with 'id' and 'similarity' keys, or None if failed
+        """
+        # Initialize embedding model
+        embedding_model = EmbeddingModel()
+
+        # Generate embedding for query text
+        query_embedding = embedding_model.get_embedding(query_text)
+        if not query_embedding:
+            if DEBUG:
+                self.output.add_line("Failed to generate embedding for similarity search")
+            return None
+
+        # Convert embedding list to JSON-like string for CAST
+        embedding_json = "[" + ",".join([str(x) for x in query_embedding]) + "]"
+
+        # Construct SQL query for similarity search using array functions
+        sql_query = f"""
+        WITH query_vec AS (
+            SELECT CAST(PARSE_JSON('{embedding_json}') AS ARRAY<DOUBLE>) as v
+        )
+        SELECT id,
+          (aggregate(zip_with(ticket_embedding, query_vec.v, (x, y) -> x * y), 0D, (acc, x) -> acc + x) /
+           (sqrt(aggregate(transform(ticket_embedding, x -> x * x), 0D, (acc, x) -> acc + x)) *
+            sqrt(aggregate(transform(query_vec.v, x -> x * x), 0D, (acc, x) -> acc + x)))) as similarity
+        FROM {table_name}, query_vec
+        ORDER BY similarity DESC
+        LIMIT {limit}
+        """
+
+        # Execute the query
+        result = self.execute_sql_query(sql_query, max_results=limit+1)  # +1 to allow for context
+
+        if result and result.get("status") == "success":
+            return result.get("data", [])
+        else:
+            if DEBUG:
+                self.output.add_line(f"Similarity search query failed: {result}")
+            return None
 
     def get_table_data(self, catalog_name, schema_name, table_name):
         """
@@ -306,8 +367,10 @@ if __name__ == "__main__" and TEST_RUN:
     # Template query: Search by substring in Description
     # search_substring = "Issues with Caregility"
     # example_query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Description LIKE '%{search_substring}%';"
-    example_query = "SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ('IR4964858', 'IR4971857');"
-    result = databricks_client.execute_sql_query(example_query)
+    # example_query = "SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ('IR4964858', 'IR4971857');"
+    # example_query = "SELECT COUNT(*) FROM scratchpad.aslanuka.ir_embeddings;"
+    # result = databricks_client.execute_sql_query(example_query)
+    result = databricks_client.similarity_search("scratchpad.aslanuka.ir_embeddings", "Add new providers")
     # print(result)
     parsed_result = ParseJson().parse_object(result)
     databricks_client.output.add_line(parsed_result)
