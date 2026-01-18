@@ -1,9 +1,7 @@
 from flask import Flask, render_template, send_from_directory, request, jsonify
 import json
-import numpy as np
 import sys
 import os
-from sklearn.metrics.pairwise import cosine_similarity
 from services.athena import Athena
 from services.databricks import Databricks
 from services.embedding_model import EmbeddingModel
@@ -46,46 +44,19 @@ def semantic_search(description, max_results=5):
 
     output.add_line(f"Generated embedding with {len(search_embedding)} dimensions")
 
-    # Load embeddings from jsonl file
-    embeddings_file = 'ir_embeddings.jsonl'
-    ids_and_embeddings = []
+    # Use Databricks similarity search instead of local file
+    db = Databricks()
+    table_name = "scratchpad.aslanuka.ir_embeddings"
+    output.add_line("Performing similarity search on Databricks ir_embeddings table...")
+    embedding_results = db.similarity_search(table_name, description, limit=max_results)
 
-    try:
-        with open(embeddings_file, 'r') as f:
-            for line_num, line in enumerate(f):
-                obj = json.loads(line.strip())
-                ticket_id = obj['id']
-                ticket_embedding = np.array(obj['ticket_embedding'])
-                ids_and_embeddings.append((ticket_id, ticket_embedding))
-
-        output.add_line(f"Loaded {len(ids_and_embeddings)} ticket embeddings from {embeddings_file}")
-
-    except FileNotFoundError:
-        output.add_line(f"Error: {embeddings_file} not found")
-        return []
-    except Exception as e:
-        output.add_line(f"Error loading embeddings: {str(e)}")
+    if not embedding_results:
+        output.add_line("No similar tickets found")
         return []
 
-    if not ids_and_embeddings:
-        output.add_line("No embeddings loaded")
-        return []
-
-    # Prepare search embedding
-    search_emb = np.array(search_embedding).reshape(1, -1)
-
-    # Prepare all ticket embeddings
-    ticket_embs = np.array([emb for _, emb in ids_and_embeddings])
-
-    # Compute cosine similarities
-    output.add_line("Computing cosine similarities...")
-    similarities = cosine_similarity(search_emb, ticket_embs)[0]
-
-    # Get top max_results indices sorted by similarity descending
-    top_indices = np.argsort(similarities)[-max_results:][::-1]
-
-    top_ticket_ids = [ids_and_embeddings[i][0] for i in top_indices]
-    top_similarities = [similarities[i] for i in top_indices]
+    # Extract ticket IDs and similarities from results
+    top_ticket_ids = [result['id'] for result in embedding_results]
+    top_similarities = [float(result['similarity']) for result in embedding_results]
 
     output.add_line(f"Top {len(top_ticket_ids)} similar tickets: {top_ticket_ids}")
     output.add_line(f"Similarities: {[f'{s:.4f}' for s in top_similarities]}")
@@ -122,6 +93,27 @@ def semantic_search(description, max_results=5):
         tickets.append(ticket)
 
     output.add_line(f"Retrieved {len(tickets)} ticket details from Databricks")
+
+    if tickets:
+        output.add_line("Closest tickets identified from the semantic search:")
+        for i, ticket in enumerate(tickets, 1):
+            output.add_line(f"Closest Ticket {i}:")
+            output.add_line(f"  ID: {ticket.get('id', 'N/A')}")
+            output.add_line(f"  Title: {ticket.get('title', 'N/A')}")
+            desc = ticket.get('description') or 'N/A'
+            output.add_line(f"  Description: {str(desc)[:100]}{'...' if len(str(desc)) > 100 else ''}")
+            output.add_line(f"  Status: {ticket.get('statusValue', 'N/A')}")
+            output.add_line(f"  Priority: {ticket.get('priorityValue', 'N/A')}")
+            output.add_line(f"  Assigned To: {ticket.get('assignedTo_DisplayName', 'N/A')}")
+            output.add_line(f"  Affected User: {ticket.get('affectedUser_DisplayName', 'N/A')}")
+            output.add_line(f"  Created Date: {ticket.get('createdDate', 'N/A')}")
+            output.add_line(f"  Resolved Date: {ticket.get('completedDate', 'N/A')}")
+            output.add_line(f"  Location: {ticket.get('locationValue', 'N/A')}")
+            output.add_line(f"  Support Group: {ticket.get('supportGroupValue', 'N/A')}")
+            res_notes = ticket.get('resolutionNotes') or 'N/A'
+            output.add_line(f"  Resolution Notes: {str(res_notes)[:100]}{'...' if len(str(res_notes)) > 100 else ''}")
+            output.add_line("")
+
     return tickets
 
 def ticket_vector_search(ticket_number, max_results=5):
@@ -167,46 +159,20 @@ def ticket_vector_search(ticket_number, max_results=5):
 
     output.add_line(f"Generated embedding with {len(search_embedding)} dimensions")
 
-    # Step 4: Load embeddings from jsonl file and perform similarity search
-    embeddings_file = 'ir_embeddings.jsonl'
-    ids_and_embeddings = []
+    # Step 4: Use Databricks similarity search instead of local file
+    db_sim = Databricks()
+    table_name = "scratchpad.aslanuka.ir_embeddings"
+    output.add_line("Performing similarity search on Databricks ir_embeddings table...")
 
-    try:
-        with open(embeddings_file, 'r') as f:
-            for line_num, line in enumerate(f):
-                obj = json.loads(line.strip())
-                ticket_id = obj['id']
-                ticket_embedding = np.array(obj['ticket_embedding'])
-                ids_and_embeddings.append((ticket_id, ticket_embedding))
+    embedding_results = db_sim.similarity_search(table_name, search_text, limit=max_results)
 
-        output.add_line(f"Loaded {len(ids_and_embeddings)} ticket embeddings from {embeddings_file}")
-
-    except FileNotFoundError:
-        output.add_line(f"Error: {embeddings_file} not found")
-        return []
-    except Exception as e:
-        output.add_line(f"Error loading embeddings: {str(e)}")
+    if not embedding_results:
+        output.add_line("No similar tickets found")
         return []
 
-    if not ids_and_embeddings:
-        output.add_line("No embeddings loaded")
-        return []
-
-    # Prepare search embedding
-    search_emb = np.array(search_embedding).reshape(1, -1)
-
-    # Prepare all ticket embeddings
-    ticket_embs = np.array([emb for _, emb in ids_and_embeddings])
-
-    # Compute cosine similarities
-    output.add_line("Computing cosine similarities...")
-    similarities = cosine_similarity(search_emb, ticket_embs)[0]
-
-    # Get top max_results indices sorted by similarity descending
-    top_indices = np.argsort(similarities)[-max_results:][::-1]
-
-    top_ticket_ids = [ids_and_embeddings[i][0] for i in top_indices]
-    top_similarities = [similarities[i] for i in top_indices]
+    # Extract ticket IDs and similarities from results
+    top_ticket_ids = [result['id'] for result in embedding_results]
+    top_similarities = [float(result['similarity']) for result in embedding_results]
 
     output.add_line(f"Top {len(top_ticket_ids)} similar tickets: {top_ticket_ids}")
     output.add_line(f"Similarities: {[f'{s:.4f}' for s in top_similarities]}")

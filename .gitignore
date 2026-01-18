@@ -6,3 +6,5 @@ test.py
 
 /misc
 /__pycache__
+/tests
+/documents
