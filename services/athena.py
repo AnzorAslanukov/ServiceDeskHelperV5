@@ -14,7 +14,7 @@ from field_mapping import FieldMapper
 load_dotenv()
 
 DEBUG = True  # Global debug setting for print statements 
-TEST_RUN = False  # Set to True to enable the test section when running the file 
+TEST_RUN = True  # Set to True to enable the test section when running the file 
 PROCESS_INDICATORS = False  # Enable/disable process loading indicator print statements 
 
 class Athena:
@@ -357,7 +357,9 @@ if __name__ == "__main__" and TEST_RUN:
     athena_client = Athena()
 
     token = athena_client.get_token()
+    athena_client.output.add_line(token)
 
+    """
     if token:
         athena_client.output.add_line("Token obtained successfully")
 
@@ -374,3 +376,4 @@ if __name__ == "__main__" and TEST_RUN:
             #     athena_client.output.add_line(ticket) 
         else: 
             athena_client.output.add_line("Failed to retrieve ticket data")
+    """

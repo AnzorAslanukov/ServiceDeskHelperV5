@@ -1,5 +1,15 @@
 # services/field_mapping.py
 
+import re
+import os
+import requests
+from output import Output
+
+# Athena import moved inside get_guid method to avoid circular import
+
+# Global logging configuration
+DEBUG_LOGGING = True  # Set to False to disable logging
+
 # Global field mapping dictionaries to standardize field names across data sources
 # Athena API uses camelCase, Databricks uses PascalCase, we standardize to snake_case
 
@@ -137,6 +147,8 @@ class FieldMapper:
     Utility class for normalizing field names between data sources.
     """
 
+    output = Output()  # Class-level output instance for logging
+
     @staticmethod
     def normalize_athena_data(data):
         """
@@ -198,3 +210,145 @@ class FieldMapper:
         standard_fields = set(ATHENA_TO_STANDARD.values())
         standard_fields.update(DATABRICKS_TO_STANDARD.values())
         return standard_fields
+
+    @staticmethod
+    def _build_enum_mappings(items, name_to_guid=None, guid_to_name=None, prefix=""):
+        """
+        Recursively build bidirectional mappings from enum tree structure.
+
+        Args:
+            items: List of enum items from API response
+            name_to_guid: Dict to populate name -> guid mappings
+            guid_to_name: Dict to populate guid -> name mappings
+            prefix: Current hierarchical prefix for fullname
+        """
+        if name_to_guid is None:
+            name_to_guid = {}
+        if guid_to_name is None:
+            guid_to_name = {}
+
+        for item in items:
+            guid = item.get('value')
+            label = item.get('label')
+            fullname = item.get('fullname')
+
+            if guid and label:
+                # Map using fullname (hierarchical path) as primary key, fallback to label
+                primary_name = fullname if fullname else label
+
+                # Store mappings
+                name_to_guid[primary_name] = guid
+                name_to_guid[label] = guid  # Also allow lookup by just label
+                guid_to_name[guid] = primary_name
+
+            # Recursively process children
+            children = item.get('children', [])
+            if children:
+                child_prefix = f"{label}\\" if label else ""
+                FieldMapper._build_enum_mappings(children, name_to_guid, guid_to_name, child_prefix)
+
+        return name_to_guid, guid_to_name
+
+    @staticmethod
+    def get_guid(value, ticket_type="ir"):
+        """
+        Bidirectional lookup between support group names and GUIDs from Athena API.
+
+        Args:
+            value (str): Either a support group name or GUID
+            ticket_type (str): "ir" for IR support groups, "sr" for SR support groups
+
+        Returns:
+            str: The corresponding GUID if name provided, or name if GUID provided.
+                 Returns None if no match found or error occurred.
+        """
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Starting get_guid lookup for value: {value}, ticket_type: {ticket_type}")
+
+        # Determine endpoint based on ticket type
+        if ticket_type.lower() == "ir":
+            endpoint = os.getenv('ATHENA_IR_SUPPORT_GROUP_GUID')
+        elif ticket_type.lower() == "sr":
+            endpoint = os.getenv('ATHENA_SR_SUPPORT_GROUP_GUID')
+        else:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line("Invalid ticket_type. Must be 'ir' or 'sr'")
+            return None
+
+        if not endpoint:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"Missing endpoint configuration for {ticket_type.upper()}")
+            return None
+
+        # Detect if input is GUID using regex
+        guid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        is_guid = bool(re.match(guid_pattern, value, re.IGNORECASE))
+
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Detected input as: {'GUID' if is_guid else 'string'}")
+            FieldMapper.output.add_line(f"Using endpoint: {endpoint}")
+
+        # Get authentication token (local import to avoid circular import)
+        from services.athena import Athena
+        athena_client = Athena()
+        token = athena_client.get_token()
+
+        if not token:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line("Failed to obtain authentication token")
+            return None
+
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line("Authentication successful")
+
+        # Make API request
+        headers = {
+            'Authorization': f'Bearer {token}'
+        }
+
+        try:
+            response = requests.get(endpoint, headers=headers, timeout=30)
+
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"API request status: {response.status_code}")
+
+            if response.status_code == 200:
+                data = response.json()
+                if DEBUG_LOGGING:
+                    FieldMapper.output.add_line(f"API call successful, processing {len(data)} root items")
+
+                # Build bidirectional mappings from the tree structure
+                name_to_guid, guid_to_name = FieldMapper._build_enum_mappings(data)
+
+                if DEBUG_LOGGING:
+                    FieldMapper.output.add_line(f"Built mappings: {len(name_to_guid)} name->guid, {len(guid_to_name)} guid->name")
+
+                # Perform lookup based on input type
+                if is_guid:
+                    result = guid_to_name.get(value)
+                    lookup_type = "GUID to name"
+                else:
+                    result = name_to_guid.get(value)
+                    lookup_type = "name to GUID"
+
+                if DEBUG_LOGGING:
+                    if result:
+                        FieldMapper.output.add_line(f"Lookup result ({lookup_type}): {result}")
+                    else:
+                        FieldMapper.output.add_line(f"No matching value found for {lookup_type} lookup")
+
+                return result
+
+            else:
+                if DEBUG_LOGGING:
+                    FieldMapper.output.add_line(f"API request failed: {response.status_code} - {response.text}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"Network error during API call: {str(e)}")
+            return None
+        except Exception as e:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"Unexpected error in get_guid: {str(e)}")
+            return None

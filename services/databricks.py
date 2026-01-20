@@ -367,10 +367,10 @@ if __name__ == "__main__" and TEST_RUN:
     # Template query: Search by substring in Description
     # search_substring = "Issues with Caregility"
     # example_query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Description LIKE '%{search_substring}%';"
-    # example_query = "SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ('IR4964858', 'IR4971857');"
+    example_query = "SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ('IR4964858', 'IR4971857');"
     # example_query = "SELECT COUNT(*) FROM scratchpad.aslanuka.ir_embeddings;"
-    # result = databricks_client.execute_sql_query(example_query)
-    result = databricks_client.similarity_search("scratchpad.aslanuka.ir_embeddings", "Add new providers")
+    result = databricks_client.execute_sql_query(example_query)
+    # result = databricks_client.similarity_search("scratchpad.aslanuka.ir_embeddings", "Add new providers")
     # print(result)
     parsed_result = ParseJson().parse_object(result)
     databricks_client.output.add_line(parsed_result)

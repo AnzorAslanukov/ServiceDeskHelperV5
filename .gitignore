@@ -3,8 +3,10 @@ output.txt
 run_embedding.py
 ir_embeddings.jsonl
 test.py
+get_guids.py
+field_values.json
 
 /misc
-/__pycache__
 /tests
 /documents
+__pycache__/
