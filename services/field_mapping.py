@@ -3,7 +3,9 @@
 import re
 import os
 import requests
-from output import Output
+import difflib
+import json
+from services.output import Output
 
 # Athena import moved inside get_guid method to avoid circular import
 
@@ -250,6 +252,245 @@ class FieldMapper:
         return name_to_guid, guid_to_name
 
     @staticmethod
+    def _search_exact_matches(items, search_term, results, max_results):
+        """
+        Recursively search tree for exact substring matches (case-insensitive).
+
+        Args:
+            items: List of support group items from API
+            search_term: Lowercase search term
+            results: List to append matches to
+            max_results: Maximum number of results to find
+        """
+        for item in items:
+            # Check if we've reached the limit
+            if len(results) >= max_results:
+                return
+
+            label = item.get('label', '').lower()
+            if search_term in label:
+                results.append(item)
+                # Don't return early - we want to find all exact matches up to limit
+
+            # Recursively search children
+            children = item.get('children', [])
+            if children:
+                FieldMapper._search_exact_matches(children, search_term, results, max_results)
+
+    @staticmethod
+    def _search_fuzzy_matches(all_labels, search_term, data_tree, max_results, similarity_cutoff=0.7, exclude_labels=None):
+        """
+        Find fuzzy matches using difflib, then return corresponding full objects.
+
+        Args:
+            all_labels: List of all labels found in the tree
+            search_term: Original search term (preserves case for display)
+            data_tree: Full tree data for finding matching objects
+            max_results: Maximum number of results
+            similarity_cutoff: Minimum similarity ratio (0.0-1.0)
+            exclude_labels: List of labels to exclude from fuzzy matching
+
+        Returns:
+            List of matching support group objects
+        """
+        if exclude_labels is None:
+            exclude_labels = []
+
+        # Filter out excluded labels
+        filtered_labels = [label for label in all_labels if label not in exclude_labels]
+        lower_filtered_labels = [label.lower() for label in filtered_labels]
+
+        # Find close matches
+        close_matches = difflib.get_close_matches(
+            search_term.lower(),
+            lower_filtered_labels,
+            n=max_results,
+            cutoff=similarity_cutoff
+        )
+
+        # Reconstruct matches with original case and full objects
+        results = []
+        for match in close_matches:
+            # Find the original case-sensitive label from filtered list
+            original_match = None
+            for i, lower_label in enumerate(lower_filtered_labels):
+                if lower_label == match:
+                    original_match = filtered_labels[i]
+                    break
+
+            if original_match:
+                # Find the full object in the tree
+                full_object = FieldMapper._find_object_by_label(data_tree, original_match)
+                if full_object:
+                    results.append(full_object)
+
+        return results
+
+    @staticmethod
+    def _find_object_by_label(items, target_label):
+        """
+        Find a support group object by its label in the tree.
+
+        Args:
+            items: Tree data to search
+            target_label: Exact label to find
+
+        Returns:
+            Full support group object or None
+        """
+        for item in items:
+            if item.get('label') == target_label:
+                return item
+
+            # Search children
+            children = item.get('children', [])
+            if children:
+                found = FieldMapper._find_object_by_label(children, target_label)
+                if found:
+                    return found
+
+        return None
+
+    @staticmethod
+    def _collect_all_labels(items):
+        """
+        Recursively collect all label values from the tree.
+
+        Args:
+            items: Tree data
+            labels: List to append labels to
+
+        Returns:
+            List of all labels in the tree
+        """
+        labels = []
+        for item in items:
+            label = item.get('label')
+            if label:
+                labels.append(label)
+
+            # Collect from children
+            children = item.get('children', [])
+            if children:
+                labels.extend(FieldMapper._collect_all_labels(children))
+
+        return labels
+
+    @staticmethod
+    def search_support_groups(search_string, ticket_type="ir", max_results=5):
+        """
+        Search support group names from Athena API with exact match fallback to fuzzy.
+
+        Args:
+            search_string (str): Search term to match against support group labels
+            ticket_type (str): "ir" or "sr" to determine endpoint
+            max_results (int): Maximum results to return (default: 5)
+
+        Returns:
+            List of matching support group objects with full API structure
+        """
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Starting search_support_groups for: '{search_string}', ticket_type: '{ticket_type}', max_results: {max_results}")
+
+        # Validate inputs
+        if not search_string or not search_string.strip():
+            FieldMapper.output.add_line("Empty search string provided")
+            return []
+
+        search_string = search_string.strip()
+
+        # Determine endpoint
+        if ticket_type.lower() == "ir":
+            endpoint = os.getenv('ATHENA_IR_SUPPORT_GROUP_GUID')
+        elif ticket_type.lower() == "sr":
+            endpoint = os.getenv('ATHENA_SR_SUPPORT_GROUP_GUID')
+        else:
+            FieldMapper.output.add_line("Invalid ticket_type. Must be 'ir' or 'sr'")
+            return []
+
+        if not endpoint:
+            FieldMapper.output.add_line(f"Missing endpoint configuration for {ticket_type.upper()}")
+            return []
+
+        # Get authentication token (local import to avoid circular import)
+        from services.athena import Athena
+        athena_client = Athena()
+        token = athena_client.get_token()
+
+        if not token:
+            FieldMapper.output.add_line("Failed to obtain authentication token")
+            return []
+
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Using endpoint: {endpoint}")
+
+        # Make API request
+        headers = {'Authorization': f'Bearer {token}'}
+
+        try:
+            response = requests.get(endpoint, headers=headers, timeout=30)
+
+            if response.status_code != 200:
+                FieldMapper.output.add_line(f"API request failed: {response.status_code} - {response.text}")
+                return []
+
+            data = response.json()
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"API call successful, processing {len(data)} tree items")
+
+        except requests.exceptions.RequestException as e:
+            FieldMapper.output.add_line(f"Network error: {str(e)}")
+            return []
+        except json.JSONDecodeError as e:
+            FieldMapper.output.add_line(f"JSON decode error: {str(e)}")
+            return []
+
+        # Phase 1: Exact substring matching
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Phase 1: Exact substring search for '{search_string}'")
+
+        exact_results = []
+        search_term_lower = search_string.lower()
+        FieldMapper._search_exact_matches(data, search_term_lower, exact_results, max_results)
+
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Found {len(exact_results)} exact matches")
+            for i, result in enumerate(exact_results, 1):
+                FieldMapper.output.add_line(f"  {i}. {result['label']} ({result['fullname']})")
+
+        # If we already have max_results exact matches, return them
+        if len(exact_results) >= max_results:
+            return exact_results
+
+        # Phase 2: Fuzzy matching to supplement exact results
+        additional_needed = max_results - len(exact_results)
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Need {additional_needed} more results. Phase 2: Fuzzy search with cutoff 0.7")
+
+        all_labels = FieldMapper._collect_all_labels(data)
+        # Exclude labels already found in exact matches
+        exclude_labels = [result['label'] for result in exact_results]
+        fuzzy_results = FieldMapper._search_fuzzy_matches(
+            all_labels, search_string, data, additional_needed, exclude_labels=exclude_labels
+        )
+
+        if fuzzy_results:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"Found {len(fuzzy_results)} additional fuzzy matches")
+                for i, result in enumerate(fuzzy_results, 1):
+                    FieldMapper.output.add_line(f"  {i}. {result['label']} ({result['fullname']})")
+        elif DEBUG_LOGGING:
+            FieldMapper.output.add_line("No additional fuzzy matches found")
+
+        # Combine exact and fuzzy results
+        final_results = exact_results + fuzzy_results
+
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Total combined results: {len(final_results)}")
+
+        return final_results
+
+    @staticmethod
     def get_guid(value, ticket_type="ir"):
         """
         Bidirectional lookup between support group names and GUIDs from Athena API.
@@ -351,4 +592,4 @@ class FieldMapper:
         except Exception as e:
             if DEBUG_LOGGING:
                 FieldMapper.output.add_line(f"Unexpected error in get_guid: {str(e)}")
-            return None 
+            return None
