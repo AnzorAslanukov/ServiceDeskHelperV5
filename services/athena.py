@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import sys
+import re
 from dotenv import load_dotenv
 
 # Add current directory to path for imports when running as script
@@ -351,6 +352,138 @@ class Athena:
 
         return all_ticket_numbers
 
+    def modify_ticket(self, ticket_id=None, username=None, priority=None, comment=None, support_group=None):
+        """
+        Modifies the specified ticket fields: assigns to a user, updates priority, adds comment, and/or updates support group.
+        Fields set to None will remain unchanged in the ticketing system.
+
+        Args:
+            ticket_id (str): The ticket ID to modify (required)
+            username (str, optional): Username to assign the ticket to (default: None, leave unassigned)
+            priority (int, optional): Priority level to set (1-3, where 1 is highest, default: None, leave unchanged)
+            comment (str, optional): Comment to add to the ticket (default: None, no comment)
+            support_group (str, optional): Support group name to assign the ticket to (default: None, leave unchanged)
+        """
+        if not ticket_id:
+            self.output.add_line("ticket_id is required")
+            return
+
+        # First get current ticket data to obtain entity_id
+        current_data = self.get_ticket_data(ticket_id)
+
+        if not current_data:
+            self.output.add_line(f"Failed to retrieve ticket data for {ticket_id}")
+            return
+
+        entity_id = current_data.get('entity_id')
+        if not entity_id:
+            self.output.add_line(f"Entity ID not found for ticket {ticket_id}")
+            return
+
+        # Prepare HTTP headers for API calls
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Content-Type': 'application/json'
+        }
+
+        # Resolve support group to GUID if provided
+        resolved_support_group = None
+        if support_group:
+            # Check if support_group is already a GUID using regex
+            guid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            is_guid = bool(re.match(guid_pattern, support_group, re.IGNORECASE))
+
+            if is_guid:
+                # Already a GUID, use as-is
+                resolved_support_group = support_group
+                self.output.add_line(f"Support group is already a GUID: {support_group}")
+            else:
+                # Need to convert name to GUID
+                prefix = ticket_id[:2].upper()
+                ticket_type = "ir" if prefix == "IR" else "sr"
+
+                resolved_support_group = FieldMapper.get_guid(support_group, ticket_type)
+                if resolved_support_group:
+                    self.output.add_line(f"Converted support group name '{support_group}' to GUID: {resolved_support_group}")
+                else:
+                    self.output.add_line(f"Failed to resolve support group name '{support_group}' to GUID for ticket type {ticket_type}")
+                    return
+
+        # Handle support group and user assignment via assignTransfer
+        if resolved_support_group or username:
+            dispatch_url = f"{self.base_url}/v1/task/ticket/dispatch"
+            dispatch_payload = {
+                "description": "Modified ticket via API",
+                "entityIds": [entity_id]
+            }
+
+            if username:
+                # Hardcoded for AslanukA's entityId
+                dispatch_payload["assignedToEntityId"] = "ae0b6297-526d-fcd0-b2d9-02fc059557e0"
+                dispatch_payload["clearAssignedTo"] = False
+            else:
+                dispatch_payload["clearAssignedTo"] = True
+
+            prefix = ticket_id[:2].upper()
+            if resolved_support_group:
+                if prefix == "IR":
+                    dispatch_payload["incidentSupportGroupId"] = resolved_support_group
+                elif prefix == "SR":
+                    dispatch_payload["serviceRequestSupportGroupId"] = resolved_support_group
+                else:
+                    self.output.add_line(f"Unsupported ticket type for dispatch: {prefix}")
+                    return
+
+            dispatch_response = requests.post(dispatch_url, headers=headers, json=dispatch_payload, timeout=30)
+            if dispatch_response.status_code != 200:
+                self.output.add_line(f"Failed to dispatch ticket: {dispatch_response.status_code} - {dispatch_response.text}")
+                return
+            else:
+                self.output.add_line(f"Successfully modified ticket {ticket_id}")
+
+        # Handle priority update via PUT
+        if priority is not None:
+            prefix = ticket_id[:2].upper()
+            if prefix == "IR":
+                url = self.ir_url
+            elif prefix == "SR":
+                url = self.sr_url
+            elif prefix == "CR":
+                url = self.cr_url
+            else:
+                self.output.add_line(f"Unsupported ticket type for priority update: {prefix}")
+                return
+
+            priority_payload = {
+                "entityId": entity_id,
+                "priority": priority
+            }
+
+            priority_response = requests.put(url, headers=headers, json=priority_payload, timeout=30)
+            if priority_response.status_code != 200:
+                self.output.add_line(f"Failed to update priority: {priority_response.status_code} - {priority_response.text}")
+                return
+            else:
+                self.output.add_line(f"Successfully updated priority for ticket {ticket_id}")
+
+        # Add comment if provided
+        if comment:
+            comment_url = f"{self.base_url}/v1/workitem/{entity_id}/comment"
+            comment_payload = {
+                "comment": comment,
+                "sendAsEmail": False,
+                "isPrivate": False,
+                "entityId": entity_id
+            }
+            comment_response = requests.post(comment_url, headers=headers, json=comment_payload, timeout=30)
+            if comment_response.status_code == 200:
+                self.output.add_line(f"Successfully added comment to ticket {ticket_id}")
+            else:
+                self.output.add_line(f"Failed to add comment: {comment_response.status_code} - {comment_response.text}")
+
+        # Retrieve and display updated ticket details
+        self.get_ticket_data(ticket_id)
+
 
 if __name__ == "__main__" and TEST_RUN:
     # Test instance creation, token retrieval, and incident ticket lookup
@@ -359,7 +492,6 @@ if __name__ == "__main__" and TEST_RUN:
     token = athena_client.get_token()
     athena_client.output.add_line(token)
 
-    """
     if token:
         athena_client.output.add_line("Token obtained successfully")
 
@@ -376,4 +508,3 @@ if __name__ == "__main__" and TEST_RUN:
             #     athena_client.output.add_line(ticket) 
         else: 
             athena_client.output.add_line("Failed to retrieve ticket data")
-    """

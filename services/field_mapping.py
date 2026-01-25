@@ -351,4 +351,4 @@ class FieldMapper:
         except Exception as e:
             if DEBUG_LOGGING:
                 FieldMapper.output.add_line(f"Unexpected error in get_guid: {str(e)}")
-            return None
+            return None 
