@@ -593,3 +593,86 @@ class FieldMapper:
             if DEBUG_LOGGING:
                 FieldMapper.output.add_line(f"Unexpected error in get_guid: {str(e)}")
             return None
+
+    @staticmethod
+    def get_all_labels(ticket_type="ir"):
+        """
+        Get a complete list of all support group label names from Athena API.
+
+        Args:
+            ticket_type (str): "ir" for IR support groups, "sr" for SR support groups
+
+        Returns:
+            list: List of all label strings, or empty list on error
+        """
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Starting get_all_labels for ticket_type: {ticket_type}")
+
+        # Determine endpoint based on ticket type
+        if ticket_type.lower() == "ir":
+            endpoint = os.getenv('ATHENA_IR_SUPPORT_GROUP_GUID')
+        elif ticket_type.lower() == "sr":
+            endpoint = os.getenv('ATHENA_SR_SUPPORT_GROUP_GUID')
+        else:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line("Invalid ticket_type. Must be 'ir' or 'sr'")
+            return []
+
+        if not endpoint:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"Missing endpoint configuration for {ticket_type.upper()}")
+            return []
+
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line(f"Using endpoint: {endpoint}")
+
+        # Get authentication token (local import to avoid circular import)
+        from services.athena import Athena
+        athena_client = Athena()
+        token = athena_client.get_token()
+
+        if not token:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line("Failed to obtain authentication token")
+            return []
+
+        if DEBUG_LOGGING:
+            FieldMapper.output.add_line("Authentication successful")
+
+        # Make API request
+        headers = {
+            'Authorization': f'Bearer {token}'
+        }
+
+        try:
+            response = requests.get(endpoint, headers=headers, timeout=30)
+
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"API request status: {response.status_code}")
+
+            if response.status_code == 200:
+                data = response.json()
+                if DEBUG_LOGGING:
+                    FieldMapper.output.add_line(f"API call successful, processing {len(data)} root items")
+
+                # Collect all label values from the tree structure
+                all_labels = FieldMapper._collect_all_labels(data)
+
+                if DEBUG_LOGGING:
+                    FieldMapper.output.add_line(f"Collected {len(all_labels)} labels")
+
+                return all_labels
+
+            else:
+                if DEBUG_LOGGING:
+                    FieldMapper.output.add_line(f"API request failed: {response.status_code} - {response.text}")
+                return []
+
+        except requests.exceptions.RequestException as e:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"Network error during API call: {str(e)}")
+            return []
+        except Exception as e:
+            if DEBUG_LOGGING:
+                FieldMapper.output.add_line(f"Unexpected error in get_all_labels: {str(e)}")
+            return []
