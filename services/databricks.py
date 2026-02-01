@@ -16,7 +16,7 @@ from embedding_model import EmbeddingModel
 load_dotenv()
 
 DEBUG = True  # Global debug setting for print statements
-TEST_RUN = False  # Set to True to enable the test section when running the file 
+TEST_RUN = True  # Set to True to enable the test section when running the file 
 
 class Databricks:
 
@@ -169,6 +169,12 @@ class Databricks:
                             if DEBUG:
                                 self.output.add_line("Using fallback column names for similarity search query")
                             columns = ['id', 'similarity']
+
+                        # Fallback for onenote similarity search queries (title, content, notebook, section, similarity)
+                        if not columns and table_records and len(table_records[0]) == 5:
+                            if DEBUG:
+                                self.output.add_line("Using fallback column names for onenote similarity search query")
+                            columns = ['title', 'content', 'notebook', 'section', 'similarity']
 
                         if DEBUG:
                             self.output.add_line(f"Query executed successfully, returned {len(table_records)} records, columns found: {len(columns)}")
@@ -349,6 +355,63 @@ class Databricks:
                 self.output.add_line(f"Unexpected error during SQL execution: {str(e)}")
             return None
 
+    def semantic_search_onenote(self, query_text: str, limit: int = 5) -> list:
+        """
+        Perform semantic search on onenote_documentation table.
+        Generates embedding for query_text and finds similar documentation pages by cosine similarity.
+
+        Args:
+            query_text (str): Input text to search for in OneNote documentation
+            limit (int): Number of top similar results to return (default: 5)
+
+        Returns:
+            list: List of dictionaries with 'title', 'content', 'notebook', 'section', 'similarity' keys, or [] if failed
+        """
+        # Initialize embedding model
+        embedding_model = EmbeddingModel()
+
+        # Generate embedding for query text
+        query_embedding = embedding_model.get_embedding(query_text)
+        if not query_embedding:
+            if DEBUG:
+                self.output.add_line("Failed to generate embedding for semantic search")
+            return []
+
+        # Table name
+        table_name = "scratchpad.aslanuka.onenote_documentation"
+        embedding_json = "[" + ",".join([str(x) for x in query_embedding]) + "]"
+
+        # Construct SQL query for similarity search using array functions
+        sql_query = f"""
+        SELECT title, content, notebook, section,
+          (aggregate(zip_with(embeddings, CAST(PARSE_JSON('{embedding_json}') AS ARRAY<DOUBLE>), (x, y) -> x * y), 0D, (acc, x) -> acc + x) /
+           (sqrt(aggregate(transform(embeddings, x -> x * x), 0D, (acc, x) -> acc + x)) *
+            sqrt(aggregate(transform(CAST(PARSE_JSON('{embedding_json}') AS ARRAY<DOUBLE>), x -> x * x), 0D, (acc, x) -> acc + x)))) as similarity
+        FROM {table_name}
+        ORDER BY similarity DESC
+        LIMIT {limit}
+        """
+
+        # Execute the query
+        result = self.execute_sql_query(sql_query, max_results=limit+1)
+
+        if result and result.get("status") == "success":
+            data = result.get("data", [])
+            # Print results to output.txt if DEBUG is enabled
+            if DEBUG:
+                self.output.add_line(f"Semantic search results for '{query_text}': {len(data)} results")
+                for row in data:
+                    content_str = str(row.get('content', ''))
+                    content_preview = content_str[:100] + '...' if len(content_str) > 100 else content_str
+                    embeddings_str = str(row.get('embeddings', ''))
+                    embeddings_preview = embeddings_str[:50] + '...' if len(embeddings_str) > 50 else embeddings_str
+                    self.output.add_line(f"Title: {row.get('title')}, Notebook: {row.get('notebook')}, Section: {row.get('section')}, Content: {content_preview}, Embeddings: {embeddings_preview}, Similarity: {row.get('similarity')}")
+            return data
+        else:
+            if DEBUG:
+                self.output.add_line(f"Semantic search query failed: {result}")
+            return []
+
 
 if __name__ == "__main__" and TEST_RUN:
     # Test instance creation, API key validity, and table access
@@ -367,10 +430,11 @@ if __name__ == "__main__" and TEST_RUN:
     # Template query: Search by substring in Description
     # search_substring = "Issues with Caregility"
     # example_query = f"SELECT * FROM prepared.ticketing.athena_tickets WHERE Description LIKE '%{search_substring}%';"
-    example_query = "SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ('IR4964858', 'IR4971857');"
+    # example_query = "SELECT * FROM prepared.ticketing.athena_tickets WHERE Id IN ('IR4964858', 'IR4971857');"
     # example_query = "SELECT COUNT(*) FROM scratchpad.aslanuka.ir_embeddings;"
-    result = databricks_client.execute_sql_query(example_query)
+    # result = databricks_client.execute_sql_query(example_query)
     # result = databricks_client.similarity_search("scratchpad.aslanuka.ir_embeddings", "Add new providers")
     # print(result)
-    parsed_result = ParseJson().parse_object(result)
-    databricks_client.output.add_line(parsed_result)
+    # parsed_result = ParseJson().parse_object(result)
+    # databricks_client.output.add_line(parsed_result)
+    databricks_client.semantic_search_onenote("Who is responsible for handling issues with Cerner label printers?")

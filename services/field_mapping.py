@@ -5,7 +5,7 @@ import os
 import requests
 import difflib
 import json
-from services.output import Output
+from output import Output
 
 # Athena import moved inside get_guid method to avoid circular import
 

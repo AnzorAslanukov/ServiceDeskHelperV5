@@ -8,4 +8,5 @@ get_guids.py
 /misc
 /tests
 /documents
-__pycache__/
+/__pycache__/
+/services/__pycache__/
