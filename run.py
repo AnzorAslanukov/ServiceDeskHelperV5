@@ -7,6 +7,7 @@ from services.databricks import Databricks
 from services.embedding_model import EmbeddingModel
 from services.text_generation_model import TextGenerationModel
 from services.prompts import PROMPTS
+from services.field_mapping import FieldMapper
 
 # Add current directory to path for imports when running as script
 sys.path.insert(0, os.path.dirname(__file__))
@@ -211,6 +212,111 @@ def ticket_vector_search(ticket_number, max_results=5):
     output.add_line(f"Retrieved {len(tickets)} ticket details from Databricks")
     return tickets
 
+def map_eus_to_location_group(location_string, available_support_groups):
+    """
+    Map generic 'EUS' recommendation to location-specific EUS group based on ticket location.
+
+    Args:
+        location_string (str): Ticket location (e.g., "RITTENHOUSE - MAIN BLDG (1800 LOMBARD)")
+        available_support_groups (list): List of all valid support group names
+
+    Returns:
+        str: Best matching location-specific EUS group, or original location_string if no match
+    """
+    if not location_string or not available_support_groups:
+        return "EUS"  # fallback
+
+    # Extract location keywords by splitting on common separators and taking first meaningful parts
+    location_parts = []
+    for sep in [' - ', ' (', '(', ' MAIN ', ' CENTER', ' HOSPITAL', ' MEDICAL', ' BUILDING', ' BLDG']:
+        if sep in str(location_string).upper():
+            # Split and take first part before separator
+            parts = str(location_string).upper().split(sep, 1)
+            if parts[0] and len(parts[0]) > 2:  # Must be meaningful length
+                location_parts.append(parts[0].strip())
+            break
+
+    # If no specific separator found, try to extract primary location identifier
+    if not location_parts:
+        # Common location patterns: RITTENHOUSE, CHERRY HILL, WIDENER, PMUC, PAHC, PRESTON, HUP
+        upper_loc = str(location_string).upper()
+        primary_loc = None
+        for candidate in ['RITTENHOUSE', 'CHERRY HILL', 'WIDENER', 'PMUC', 'PAHC', 'PRESTON', 'HUP', 'PAH', 'MARKET']:
+            if candidate in upper_loc:
+                primary_loc = candidate
+                break
+
+        if primary_loc:
+            location_parts = [primary_loc]
+        else:
+            # Last resort: take first word that's 4+ chars
+            words = str(location_string).upper().split()
+            for word in words[:3]:  # Check first 3 words
+                if len(word) >= 4 and word.replace('(', '').replace(')', '').replace(',', '').isalnum():
+                    location_parts = [word]
+                    break
+
+    if not location_parts:
+        return "EUS"  # unable to extract meaningful location
+
+    # Filter available groups: remove groups with excluded keywords
+    filtered_groups = []
+    for group in available_support_groups:
+        group_upper = str(group).upper()
+        if not any(exclude in group_upper for exclude in ['NETWORK', 'CPD', 'RFID']):
+            filtered_groups.append(group)
+
+    # Score each filtered group by location keyword matches
+    scored_groups = []
+    for group in filtered_groups:
+        score = 0
+        group_upper = str(group).upper()
+
+        # Direct substring matches get highest score
+        for loc_part in location_parts:
+            if loc_part in group_upper:
+                score += 3
+
+        # Word boundary matches (whole word) get medium score
+        import re
+        for loc_part in location_parts:
+            if re.search(r'\b' + re.escape(loc_part) + r'\b', group_upper):
+                score += 2
+
+        # Partial matches (beginning of group name or location name) get lower score
+        for loc_part in location_parts:
+            for word in group_upper.split():
+                if word.startswith(loc_part) or loc_part.startswith(word):
+                    score += 1
+
+        # Handle common location abbreviations
+        # If location part is long name, check for short form in group
+        for loc_part in location_parts:
+            if loc_part == 'RITTENHOUSE' and 'RITT' in group_upper:
+                score += 3
+            elif loc_part == 'CHERRY HILL' and 'RSI' in group_upper:
+                score += 3
+            elif loc_part == 'WIDENER' and 'WIDENER' in group_upper:
+                score += 3
+            elif loc_part == 'MARKET' and 'PMUC' in group_upper:
+                score += 3
+            elif loc_part.startswith('PAH') and 'PAH' in group_upper:
+                score += 3
+            elif loc_part == 'PRESTON' and 'PRES' in group_upper:
+                score += 3
+            elif loc_part.startswith('HUP') and 'HUP' in group_upper:
+                score += 3
+
+        if score > 0:
+            scored_groups.append((group, score))
+
+    # Return highest scoring group, or fallback if none found
+    if scored_groups:
+        scored_groups.sort(key=lambda x: x[1], reverse=True)
+        return scored_groups[0][0]  # highest score group
+
+    return "EUS"  # no matches found, fallback to generic
+
 def exact_description_search(description, max_results=5):
     """
     Perform exact description search using SQL LIKE query on Databricks athena_tickets table.
@@ -250,9 +356,6 @@ def get_ticket_advice(ticket_number):
     """
     Get ticket advice by compiling structured data and using LLM for assignment recommendations.
     """
-    from services.output import Output
-    import json
-
     output = Output()
 
     if DEBUG:
@@ -271,11 +374,35 @@ def get_ticket_advice(ticket_number):
     if DEBUG:
         output.add_line(f"original_data:\n{original_data}")
 
+    # Validate ticket number format
+    if not isinstance(ticket_number, str) or len(ticket_number) < 2:
+        output.add_line(f"Invalid ticket number format: {ticket_number}")
+        return {'error': f'Invalid ticket number format: {ticket_number}'}
+
+    # Detect ticket type from ticket number (first 2 characters)
+    ticket_type = ticket_number[:2].lower()  # "ir" or "sr"
+    if DEBUG:
+        output.add_line(f"Detected ticket type: {ticket_type}")
+
+    # Get all available support groups for this ticket type
+    available_support_groups = FieldMapper.get_all_labels(ticket_type=ticket_type.lower())
+
+    if DEBUG:
+        output.add_line(f"Available support groups ({len(available_support_groups)} total): {available_support_groups[:10]}{'...' if len(available_support_groups) > 10 else ''}")
+
     # Get similar tickets
     similar_tickets = ticket_vector_search(ticket_number, max_results=5)
 
     if DEBUG:
         output.add_line(f"similar_tickets:\n{similar_tickets}")
+
+    # Get related OneNote documentation
+    search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
+    db = Databricks()
+    onenote_docs = db.semantic_search_onenote(search_text, limit=5)
+
+    if DEBUG:
+        output.add_line(f"onenote_docs:\n{onenote_docs}")
 
     # Extract fields for original
     def extract_fields(ticket):
@@ -283,7 +410,7 @@ def get_ticket_advice(ticket_number):
             "title": ticket.get("title", ""),
             "description": ticket.get("description", ""),
             "priority": ticket.get("priority", "") or ticket.get("priorityValue", ""),
-            "locationValue": ticket.get("locationValue", ""),
+            "location": ticket.get("location", ""),  # Use correct field name from Athena data
             "floorValue": ticket.get("floorValue", ""),
             "affectedUser_Department": ticket.get("affectedUser_Department", ""),
             "affectedUser_Title": ticket.get("affectedUser_Title", "")
@@ -291,7 +418,9 @@ def get_ticket_advice(ticket_number):
 
     structured_data = {
         "original_ticket": extract_fields(original_data),
-        "similar_tickets": similar_tickets
+        "similar_tickets": similar_tickets,
+        "onenote_documentation": onenote_docs,
+        "available_support_groups": available_support_groups
     }
 
     # Convert to JSON string
@@ -312,6 +441,19 @@ def get_ticket_advice(ticket_number):
         output.add_line(f"Error: {assignment_result['error']}")
         return {'error': assignment_result['error']}
     else:
+        original_group = assignment_result.get('recommended_support_group', 'N/A')
+
+        # Map "EUS" to location-specific group if needed
+        if original_group == 'EUS':
+            ticket_location = original_data.get('location', '')
+            if ticket_location:
+                mapped_group = map_eus_to_location_group(ticket_location, available_support_groups)
+                if mapped_group != 'EUS':  # Successful mapping
+                    assignment_result['recommended_support_group'] = mapped_group
+                    output.add_line(f"Mapped generic EUS to location-specific group: {mapped_group}")
+                else:
+                    output.add_line("Warning: Generic 'EUS' could not be mapped to location-specific group")
+
         output.add_line(f"Recommended Support Group: {assignment_result.get('recommended_support_group', 'N/A')}")
         output.add_line(f"Recommended Priority Level: {assignment_result.get('recommended_priority_level', 'N/A')}")
         output.add_line("Detailed Explanation:")
@@ -321,6 +463,7 @@ def get_ticket_advice(ticket_number):
         return {
             'original_data': original_data,
             'similar_tickets': similar_tickets,
+            'onenote_documentation': onenote_docs,
             'recommended_support_group': assignment_result.get('recommended_support_group'),
             'recommended_priority_level': assignment_result.get('recommended_priority_level'),
             'detailed_explanation': assignment_result.get('detailed_explanation')
@@ -457,4 +600,5 @@ def api_get_ticket_advice():
         return jsonify({'error': 'Missing ticketId'}), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True)
+    # app.run(host='0.0.0.0', debug=True)
+    get_ticket_advice("IR10223029")

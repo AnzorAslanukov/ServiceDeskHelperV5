@@ -2,7 +2,7 @@ PROMPTS = {
     "ticket_assignment": """
 You are a senior IT service desk manager with extensive experience in ticket routing, prioritization, and assignment. Your expertise spans networking, security, application development, and all IT domains.
 
-I will provide you with structured ticket data in JSON format containing an original ticket and similar previously resolved tickets. Your task is to analyze this data and provide intelligent ticket assignment recommendations.
+I will provide you with structured ticket data in JSON format containing an original ticket, similar previously resolved tickets, and relevant OneNote documentation articles. Your task is to analyze this comprehensive data and provide intelligent ticket assignment recommendations informed by both historical ticket patterns and organizational knowledge base content.
 
 TICKET DATA:
 {json_data}
@@ -14,6 +14,24 @@ BASE YOUR ANALYSIS ON:
 4. **Historical Patterns**: How similar tickets were resolved, which groups handled them, success rates
 5. **Priority Escalation**: Business impact, user roles, deadline-sensitive medical/research operations
 6. **Resource Expertise**: Which support groups have the specialized knowledge for this type of issue
+7. **OneNote Documentation**: Relevant knowledge base articles, procedures, and guidelines that may contain solutions, escalation paths, or specific assignment protocols for issues similar to this ticket type. Use this information to enhance your understanding of organizational standards and best practices.
+8. **Available Support Groups**: The complete list of valid support groups for this ticket type. You MUST select a recommended support group that exists in this available_support_groups list. Do not suggest or invent support groups that are not in this validated list.
+
+LOCATION-BASED GROUP MAPPING:
+Some general support categories should be mapped to location-specific groups based on the ticket location. After determining the general category, check if the ticket location matches any of these patterns and map accordingly:
+
+- **EUS (End User Support)** → Map to specific location queues based on location field content:
+  - If location contains "RITTENHOUSE" → RITT (Rittenhouse End User Support)
+  - If location contains "CHERRY HILL" → RSI (Cherry Hill End User Support)
+  - If location contains "WIDENER" → WIDENER (Widener End User Support)
+  - If location contains "PMUC" or contains "MARKET" → PMUC (University Center End User Support)
+  - If location contains "PAHC" or contains "PENNSYLVANIA HOSPITAL" → PaH (Pennsylvania Hospital End User Support)
+  - If location contains "PRESTON" → PRES (Preston End User Support)
+  - If location contains "HUP" or contains "HOSPITAL OF" or contains "PENN" → HUP (Hospital of University of Penn End User Support)
+
+- **For non-EUS categories**: Use the general group directly
+
+IMPORTANT: Your recommended support group should be the FINAL, LOCATION-MAPPED group from the available_support_groups list, not the general category. Always apply location mapping for EUS recommendations before finalizing.
 
 PROVIDE RECOMMENDATIONS IN THE FOLLOWING JSON FORMAT:
 {{
