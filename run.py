@@ -621,5 +621,5 @@ def api_get_ticket_advice():
         return jsonify({'error': 'Missing ticketId'}), 400
 
 if __name__ == '__main__':
-    # app.run(host='0.0.0.0', debug=True)
-    get_ticket_advice("IR10226122")
+    app.run(host='0.0.0.0', debug=True)
+    # get_ticket_advice("IR10226122")

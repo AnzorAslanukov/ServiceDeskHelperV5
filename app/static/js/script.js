@@ -250,7 +250,7 @@ function displaySimilarTickets(data) {
             <div class="row">
               <div class="col-md-6">
                 <p><strong>Description:</strong> ${ticket.description}</p>
-                <p><strong>Status:</strong> <span class="badge bg-${ticket.statusValue === 'Closed' ? 'success' : ticket.statusValue === 'Open' || ticket.statusValue === 'Active' ? 'danger' : 'warning'}">${ticket.statusValue}</span></p>
+                <p><strong>Status:</strong> <span class="badge bg-${ticket.statusValue === 'Closed' ? 'success' : ticket.statusValue === 'Active' || ticket.statusValue === 'Open' ? 'danger' : 'warning'}">${ticket.statusValue}</span></p>
                 <p><strong>Priority:</strong> <span class="badge bg-info">${ticket.priorityValue}</span></p>
                 <p><strong>Assigned To:</strong> ${ticket.assignedTo_DisplayName || 'Unassigned'}</p>
                 <p><strong>Affected User:</strong> ${ticket.affectedUser_DisplayName || 'N/A'}</p>
@@ -278,6 +278,51 @@ function displaySimilarTickets(data) {
   tooltipTriggerList.forEach(tooltipTriggerEl => {
     new bootstrap.Tooltip(tooltipTriggerEl);
   });
+}
+
+function displayOnenoteDocuments(docs) {
+  const container = document.getElementById('content-area');
+
+  let html = '';
+
+  html += '<div class="accordion" id="onenoteAccordion">';
+
+  docs.forEach((doc, index) => {
+    const contentPreview = doc.content ? doc.content.substring(0, 200) + (doc.content.length > 200 ? '...' : '') : 'No content available';
+
+    html += `
+      <div class="accordion-item">
+        <h2 class="accordion-header" style="display: flex; align-items: center; padding-left: 0.5rem;">
+          <button class="btn btn-sm btn-outline-primary me-2" onclick="handleCopy('${doc.title || 'Untitled Document'}', this)" data-bs-toggle="tooltip" data-bs-placement="top" title="Copy document title">
+            <i class="bi bi-clipboard"></i>
+          </button>
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOneNote${index}" aria-expanded="false" style="flex-grow: 1;">
+            ${doc.title || 'Untitled Document'}
+          </button>
+        </h2>
+        <div id="collapseOneNote${index}" class="accordion-collapse collapse">
+          <div class="accordion-body">
+            <div class="row">
+              <div class="col-md-6">
+                <p><strong>Notebook:</strong> ${doc.notebook || 'N/A'}</p>
+                <p><strong>Section:</strong> ${doc.section || 'N/A'}</p>
+                <p><strong>Similarity Score:</strong> ${doc.similarity ? parseFloat(doc.similarity).toFixed(4) : 'N/A'}</p>
+              </div>
+              <div class="col-md-6">
+                <p><strong>Content Preview:</strong></p>
+                <div class="border-start border-secondary border-2 ps-2">
+                  <p class="mb-0 text-muted">${contentPreview}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  container.innerHTML += html;
 }
 
 function displayOriginalTicket(data) {
@@ -645,6 +690,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
           if (data.similar_tickets && data.similar_tickets.length > 0) {
             displaySimilarTickets(data.similar_tickets, searchValue);
+          }
+
+          if (data.onenote_documentation && data.onenote_documentation.length > 0) {
+            // Add visual separator and label for OneNote documentation
+            const container = document.getElementById('content-area');
+            container.innerHTML += '<div class="mt-5 pt-4 border-top text-start"><h4>OneNote Documentation Referenced</h4></div>';
+            displayOnenoteDocuments(data.onenote_documentation);
           }
         } catch (error) {
           // Ensure content area exists for error message
