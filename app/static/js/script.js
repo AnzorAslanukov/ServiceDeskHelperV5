@@ -1,5 +1,18 @@
 console.log('Script loaded. ToggleButton available:', typeof ToggleButton);
 
+// Debug logging system - set to true to enable console logging for development
+const DEBUG = false;
+
+/**
+ * Debug logging function - only logs when DEBUG is true
+ * @param {string|object} message - Message to log
+ */
+function debugLog(message) {
+  if (DEBUG) {
+    console.log(message);
+  }
+}
+
 function createSearchToggleButtons() {
     const container = document.getElementById('search-toggles-container');
 
@@ -577,6 +590,18 @@ document.addEventListener('DOMContentLoaded', function() {
         // Save preferences
         singleTicket.savePreference();
         multipleTickets.savePreference();
+
+        // Restore the search input area and hide batch workflow buttons
+        const inputGroup = document.querySelector('.input-group');
+        if (inputGroup) {
+          inputGroup.style.display = 'flex';
+        }
+
+        const batchButtonsContainer = document.getElementById('batch-workflow-buttons');
+        if (batchButtonsContainer) {
+          batchButtonsContainer.remove();
+        }
+
         // Update search placeholder
         const searchInput = document.getElementById('ticket-search-input');
         if (searchInput) {
@@ -603,10 +628,46 @@ document.addEventListener('DOMContentLoaded', function() {
         // Save preferences
         multipleTickets.savePreference();
         singleTicket.savePreference();
-        // Update search placeholder
-        const searchInput = document.getElementById('ticket-search-input');
-        if (searchInput) {
-          searchInput.placeholder = 'Batch ticket assignment will be available in a future update.';
+
+        // Hide the search input area and show batch workflow buttons
+        const inputGroup = document.querySelector('.input-group');
+        if (inputGroup) {
+          inputGroup.style.display = 'none';
+        }
+
+        // Create container for batch workflow buttons
+        let batchButtonsContainer = document.getElementById('batch-workflow-buttons');
+        if (!batchButtonsContainer) {
+          batchButtonsContainer = document.createElement('div');
+          batchButtonsContainer.id = 'batch-workflow-buttons';
+          batchButtonsContainer.className = 'd-flex justify-content-center align-items-center gap-3 mb-4';
+          batchButtonsContainer.innerHTML = `
+            <button id="get-validation-tickets-btn" class="btn btn-primary btn-lg" type="button">
+              Get validation tickets
+            </button>
+            <button id="get-ticket-recommendations-btn" class="btn btn-secondary btn-lg" type="button">
+              Get ticket recommendations
+            </button>
+            <button id="implement-ticket-assignment-btn" class="btn btn-success btn-lg" type="button">
+              Implement ticket assignment
+            </button>
+          `;
+          const mainContent = document.querySelector('.main-content');
+          const toggleButtons = mainContent.querySelector('.d-flex.justify-content-center.align-items-center.mb-4');
+          if (toggleButtons) {
+            toggleButtons.insertAdjacentElement('afterend', batchButtonsContainer);
+          }
+
+          // Add click event listeners for batch workflow buttons (placeholders for now)
+          document.getElementById('get-validation-tickets-btn').addEventListener('click', function() {
+            alert('Get validation tickets functionality will be implemented in the backend.');
+          });
+          document.getElementById('get-ticket-recommendations-btn').addEventListener('click', function() {
+            alert('Get ticket recommendations functionality will be implemented in the backend.');
+          });
+          document.getElementById('implement-ticket-assignment-btn').addEventListener('click', function() {
+            alert('Implement ticket assignment functionality will be implemented in the backend.');
+          });
         }
       }
     });
@@ -667,19 +728,19 @@ document.addEventListener('DOMContentLoaded', function() {
           const data = await response.json();
 
           // Debug: Log the API response
-          console.log("Assignment API response:", data);
+          debugLog("Assignment API response:", data);
 
           // Display AI recommendations first
-          console.log("Checking for AI recommendation data:");
-          console.log("recommended_support_group:", data.recommended_support_group);
-          console.log("recommended_priority_level:", data.recommended_priority_level);
-          console.log("detailed_explanation:", data.detailed_explanation);
+          debugLog("Checking for AI recommendation data:");
+          debugLog("recommended_support_group:", data.recommended_support_group);
+          debugLog("recommended_priority_level:", data.recommended_priority_level);
+          debugLog("detailed_explanation:", data.detailed_explanation);
 
           if (data.recommended_support_group || data.recommended_priority_level || data.detailed_explanation) {
-            console.log("Displaying AI recommendations");
+            debugLog("Displaying AI recommendations");
             displayAssignmentRecommendations(data);
           } else {
-            console.log("No AI recommendation data found - skipping display");
+            debugLog("No AI recommendation data found - skipping display");
           }
 
           displayOriginalTicket(data.original_data, searchValue);
@@ -766,6 +827,84 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  // Ticket search navigation button functionality
+  const searchBtn = document.getElementById('ticket-search-nav-btn');
+  if (searchBtn) {
+    searchBtn.addEventListener('click', function() {
+      // Remove any existing assignment toggle buttons
+      const assignmentToggles = document.querySelectorAll('.main-content .d-flex:not(:has(#phone-toggle))');
+      assignmentToggles.forEach(div => div.remove());
+
+      // Hide batch buttons if present
+      const batchButtonsContainer = document.getElementById('batch-workflow-buttons');
+      if (batchButtonsContainer) {
+        batchButtonsContainer.remove();
+      }
+
+      // Show search buttons by removing d-none and finding the div
+      let searchDiv = null;
+      if (document.getElementById('phone-toggle')) {
+        searchDiv = document.getElementById('phone-toggle').closest('.justify-content-center');
+      }
+      if (!searchDiv) {
+        // Try to find the div in search-container
+        const searchContainer = document.getElementById('search-toggles-container');
+        if (searchContainer) {
+          searchDiv = searchContainer.querySelector('div');
+        }
+      }
+      if (searchDiv) {
+        searchDiv.classList.remove('d-none');
+        if (!searchDiv.classList.contains('d-flex')) {
+          searchDiv.classList.add('d-flex');
+        }
+      } else {
+        // Fall back to recreating search buttons if not found
+        createSearchToggleButtons();
+      }
+
+      // Ensure content area exists
+      if (!document.getElementById('content-area')) {
+        const contentArea = document.createElement('div');
+        contentArea.id = 'content-area';
+        contentArea.className = 'mt-4';
+        const mainContent = document.querySelector('.main-content');
+        mainContent.appendChild(contentArea);
+      }
+
+      // Set search toggles on (phone default), assignment off
+      phone.isOn = true;
+      match.isOn = false;
+      semantic.isOn = false;
+      ticket.isOn = false;
+      singleTicket.isOn = false;
+      multipleTickets.isOn = false;
+
+      // Apply changes
+      phone.applyIcon(ToggleButton.currentThemeIsDark());
+      match.applyIcon(ToggleButton.currentThemeIsDark());
+      semantic.applyIcon(ToggleButton.currentThemeIsDark());
+      ticket.applyIcon(ToggleButton.currentThemeIsDark());
+
+      // Save preferences
+      phone.savePreference();
+      match.savePreference();
+      semantic.savePreference();
+      ticket.savePreference();
+      singleTicket.savePreference();
+      multipleTickets.savePreference();
+
+      // Update placeholder to search mode
+      const searchInput = document.getElementById('ticket-search-input');
+      if (searchInput) {
+        searchInput.placeholder = 'Search tickets by phone number.';
+      }
+
+      // Clear content area
+      document.getElementById('content-area').innerHTML = '';
+    });
+  }
+
   // Ticket assignment navigation button functionality
   const assignmentBtn = document.getElementById('ticket-assignment-nav-btn');
   if (assignmentBtn) {
@@ -836,66 +975,108 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Clear content area
       document.getElementById('content-area').innerHTML = '';
+
+      // Add event listeners for assignment toggle buttons
+      const singleTicketButton = document.getElementById('single_ticket-toggle');
+      if (singleTicketButton) {
+        singleTicketButton.addEventListener('click', function() {
+          if (singleTicket.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on single ticket, turn off multiple tickets
+            singleTicket.isOn = true;
+            multipleTickets.isOn = false;
+            // Apply changes
+            singleTicket.applyIcon(ToggleButton.currentThemeIsDark());
+            multipleTickets.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            singleTicket.savePreference();
+            multipleTickets.savePreference();
+
+            // Restore the search input area and hide batch workflow buttons
+            const inputGroup = document.querySelector('.input-group');
+            if (inputGroup) {
+              inputGroup.style.display = 'flex';
+            }
+
+            const batchButtonsContainer = document.getElementById('batch-workflow-buttons');
+            if (batchButtonsContainer) {
+              batchButtonsContainer.remove();
+            }
+
+            // Update search placeholder
+            const searchInput = document.getElementById('ticket-search-input');
+            if (searchInput) {
+              searchInput.placeholder = 'Get advice on ticket assignment. Enter a ticket number.';
+            }
+          }
+        });
+      }
+
+      // Multiple tickets toggle button functionality
+      const multipleTicketsButton = document.getElementById('multiple_tickets-toggle');
+      if (multipleTicketsButton) {
+        multipleTicketsButton.addEventListener('click', function() {
+          if (multipleTickets.isOn) {
+            // Already on, do nothing
+            return;
+          } else {
+            // Turn on multiple tickets, turn off single ticket
+            multipleTickets.isOn = true;
+            singleTicket.isOn = false;
+            // Apply changes
+            multipleTickets.applyIcon(ToggleButton.currentThemeIsDark());
+            singleTicket.applyIcon(ToggleButton.currentThemeIsDark());
+            // Save preferences
+            multipleTickets.savePreference();
+            singleTicket.savePreference();
+
+            // Hide the search input area and show batch workflow buttons
+            const inputGroup = document.querySelector('.input-group');
+            if (inputGroup) {
+              inputGroup.style.display = 'none';
+            }
+
+            // Create container for batch workflow buttons
+            let batchButtonsContainer = document.getElementById('batch-workflow-buttons');
+            if (!batchButtonsContainer) {
+              batchButtonsContainer = document.createElement('div');
+              batchButtonsContainer.id = 'batch-workflow-buttons';
+              batchButtonsContainer.className = 'd-flex justify-content-center align-items-center gap-3 mb-4';
+              batchButtonsContainer.innerHTML = `
+                <button id="get-validation-tickets-btn" class="btn btn-primary btn-lg" type="button">
+                  Get validation tickets
+                </button>
+                <button id="get-ticket-recommendations-btn" class="btn btn-secondary btn-lg" type="button">
+                  Get ticket recommendations
+                </button>
+                <button id="implement-ticket-assignment-btn" class="btn btn-success btn-lg" type="button">
+                  Implement ticket assignment
+                </button>
+              `;
+              const mainContent = document.querySelector('.main-content');
+              const toggleButtons = mainContent.querySelector('.d-flex.justify-content-center.align-items-center.mb-4');
+              if (toggleButtons) {
+                toggleButtons.insertAdjacentElement('afterend', batchButtonsContainer);
+              }
+
+              // Add click event listeners for batch workflow buttons (placeholders for now)
+              document.getElementById('get-validation-tickets-btn').addEventListener('click', function() {
+                alert('Get validation tickets functionality will be implemented in the backend.');
+              });
+              document.getElementById('get-ticket-recommendations-btn').addEventListener('click', function() {
+                alert('Get ticket recommendations functionality will be implemented in the backend.');
+              });
+              document.getElementById('implement-ticket-assignment-btn').addEventListener('click', function() {
+                alert('Implement ticket assignment functionality will be implemented in the backend.');
+              });
+            }
+          }
+        });
+      }
+
     });
   }
-
-  // Ticket search navigation button functionality
-  const searchNavBtn = document.getElementById('ticket-search-nav-btn');
-  if (searchNavBtn) {
-    searchNavBtn.addEventListener('click', function() {
-      // Remove any existing toggle buttons (assignment ones if present)
-      document.querySelectorAll('.main-content .d-flex:not(:has(#phone-toggle))').forEach(div => div.remove());
-      // Show search buttons by changing Bootstrap utility classes
-      const searchDiv = document.getElementById('phone-toggle').closest('.d-none');
-      if (searchDiv) {
-        searchDiv.classList.remove('d-none');
-        searchDiv.classList.add('d-flex');
-      }
-
-      // Ensure content area exists
-      if (!document.getElementById('content-area')) {
-        const contentArea = document.createElement('div');
-        contentArea.id = 'content-area';
-        contentArea.className = 'mt-4';
-        const mainContent = document.querySelector('.main-content');
-        mainContent.appendChild(contentArea);
-      }
-
-      // Set search toggles on, assignment off
-      phone.isOn = true;
-      match.isOn = false;
-      semantic.isOn = false;
-      ticket.isOn = false;
-      singleTicket.isOn = false;
-      multipleTickets.isOn = false;
-
-      // Apply changes
-      phone.applyIcon(ToggleButton.currentThemeIsDark());
-      match.applyIcon(ToggleButton.currentThemeIsDark());
-      semantic.applyIcon(ToggleButton.currentThemeIsDark());
-      ticket.applyIcon(ToggleButton.currentThemeIsDark()); 
-      singleTicket.applyIcon(ToggleButton.currentThemeIsDark());
-      multipleTickets.applyIcon(ToggleButton.currentThemeIsDark());
-
-      // Save preferences
-      phone.savePreference();
-      match.savePreference();
-      semantic.savePreference();
-      ticket.savePreference();
-      singleTicket.savePreference();
-      multipleTickets.savePreference();
-
-      // Update placeholder
-      const searchInput = document.getElementById('ticket-search-input');
-      if (searchInput) {
-        searchInput.placeholder = 'Search tickets by phone number.';
-      }
-
-      // Clear content area
-      document.getElementById('content-area').innerHTML = '';
-    });
-  }
-
-});
-
+})
 console.log('Script loaded and initialized.');
