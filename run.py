@@ -2,6 +2,7 @@ from flask import Flask, render_template, send_from_directory, request, jsonify
 import json
 import sys
 import os
+import concurrent.futures
 from services.athena import Athena
 from services.databricks import Databricks
 from services.embedding_model import EmbeddingModel
@@ -117,38 +118,46 @@ def semantic_search(description, max_results=5):
 
     return tickets
 
-def ticket_vector_search(ticket_number, max_results=5):
+def ticket_vector_search(ticket_number=None, ticket_data=None, max_results=5):
     """
-    Perform vector search based on a ticket number:
-    1. Get ticket details from Athena using ticket_number
-    2. Combine title and description for embedding
-    3. Perform vector similarity search against pre-stored embeddings
-    4. Return similar ticket details from Databricks
+    Perform vector search based on ticket number or pre-fetched data.
+    If ticket_data is provided, uses it directly to avoid redundant Athena calls.
     """
     from services.output import Output
+    from services.embedding_model import EmbeddingModel
+    from services.databricks import Databricks
     output = Output()
 
     output.add_line(f"Starting ticket-based vector search for ticket: {ticket_number}")
 
-    # Step 1: Get ticket details from Athena
-    athena = Athena()
-    ticket_result = athena.get_ticket_data(ticket_number=ticket_number, view=True)
+    # If ticket_data is provided, use it; otherwise fetch from Athena
+    if ticket_data is not None:
+        if DEBUG:
+            output.add_line("Using provided ticket_data (avoiding redundant Athena call)")
+    elif ticket_number is not None:
+        # Step 1: Get ticket details from Athena (only when ticket_data not provided)
+        athena = Athena()
+        ticket_result = athena.get_ticket_data(ticket_number=ticket_number, view=True)
 
-    if not ticket_result or 'result' not in ticket_result or not ticket_result['result']:
-        output.add_line(f"Could not retrieve ticket {ticket_number} from Athena")
+        if not ticket_result or 'result' not in ticket_result or not ticket_result['result']:
+            output.add_line(f"Could not retrieve ticket {ticket_number} from Athena")
+            return []
+
+        ticket_data = ticket_result['result'][0]  # Get the first result
+    else:
+        output.add_line("Either ticket_number or ticket_data must be provided")
         return []
 
-    ticket_data = ticket_result['result'][0]  # Get the first result
     ticket_title = ticket_data.get('title', '')
     ticket_description = ticket_data.get('description', '')
 
     # Step 2: Combine title and description for embedding
     search_text = f"{ticket_title} {ticket_description}".strip()
     if not search_text:
-        output.add_line(f"No searchable text in ticket {ticket_number}")
+        output.add_line(f"No searchable text in ticket {ticket_data.get('id', 'unknown')}")
         return []
 
-    output.add_line(f"Search text from ticket {ticket_number}: '{search_text[:100]}{'...' if len(search_text) > 100 else ''}'")
+    output.add_line(f"Search text from ticket {ticket_data.get('id', 'unknown')}: '{search_text[:100]}{'...' if len(search_text) > 100 else ''}'")
 
     # Step 3: Generate embedding for the ticket content
     emb_model = EmbeddingModel()
@@ -390,18 +399,30 @@ def get_ticket_advice(ticket_number):
     if DEBUG:
         output.add_line(f"Available support groups ({len(available_support_groups)} total): {available_support_groups[:10]}{'...' if len(available_support_groups) > 10 else ''}")
 
-    # Get similar tickets
-    similar_tickets = ticket_vector_search(ticket_number, max_results=5)
+    # Prepare search text for parallel operations
+    search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
+
+    # Execute similar tickets search and OneNote documentation search in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # Submit both tasks
+        similar_tickets_future = executor.submit(ticket_vector_search, ticket_data=original_data, max_results=5)
+        onenote_future = executor.submit(lambda: Databricks().semantic_search_onenote(search_text, limit=5))
+
+        # Wait for results with timeout handling
+        try:
+            similar_tickets = similar_tickets_future.result(timeout=60)  # 60 second timeout
+            onenote_docs = onenote_future.result(timeout=60)  # 60 second timeout
+        except concurrent.futures.TimeoutError:
+            output.add_line("Warning: Parallel operations timed out, falling back to empty results")
+            similar_tickets = []
+            onenote_docs = []
+        except Exception as e:
+            output.add_line(f"Warning: Parallel operations failed with error: {str(e)}, falling back to empty results")
+            similar_tickets = []
+            onenote_docs = []
 
     if DEBUG:
         output.add_line(f"similar_tickets:\n{similar_tickets}")
-
-    # Get related OneNote documentation
-    search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
-    db = Databricks()
-    onenote_docs = db.semantic_search_onenote(search_text, limit=5)
-
-    if DEBUG:
         output.add_line(f"onenote_docs:\n{onenote_docs}")
 
     # Extract fields for original
@@ -601,4 +622,4 @@ def api_get_ticket_advice():
 
 if __name__ == '__main__':
     # app.run(host='0.0.0.0', debug=True)
-    get_ticket_advice("IR10223029")
+    get_ticket_advice("IR10226122")
