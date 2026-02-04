@@ -378,6 +378,131 @@ function displaySimilarTickets(data) {
   });
 }
 
+function displayValidationTickets(data) {
+  debugLog('[WIDGET] - Displaying validation tickets, count:', data.count);
+  const container = document.getElementById('content-area');
+
+  // Display section header for validation tickets with expand/collapse toggle
+  let count = data.count || 0;
+  let html = `
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="mb-0">Validation Tickets (${count})</h4>
+      <button id="validation-toggle-all-btn" class="btn btn-outline-secondary" type="button">
+        <i class="bi bi-chevron-down me-1"></i>Expand All
+      </button>
+    </div>
+  `;
+
+  if (data.error) {
+    html += `<div class="alert alert-danger"><h5>Error</h5><p>${data.error}</p></div>`;
+  } else if (!data.tickets || data.tickets.length === 0) {
+    html += '<div class="alert alert-info">No validation tickets found.</div>';
+  } else {
+    // Create accordion structure for tickets
+    html += '<div class="accordion" id="validationTicketsAccordion">';
+
+    data.tickets.forEach((ticket, index) => {
+      const createdDate = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : 'N/A';
+      const truncatedDesc = ticket.description || 'N/A';
+      const priority = ticket.priority || 'N/A';
+      const location = ticket.location || 'N/A';
+      const status = ticket.status || 'N/A';
+      const assignedTo = ticket.assigned_to || 'Unassigned';
+      const affectedUser = ticket.affected_user || 'N/A';
+      const source = ticket.source || 'N/A';
+      const supportGroup = ticket.support_group || 'N/A';
+      const resolutionNotes = ticket.resolution_notes || 'N/A';
+      const fullDescription = ticket.full_description || ticket.description || 'N/A';
+
+      html += `
+        <div class="accordion-item">
+          <h2 class="accordion-header" style="display: flex; align-items: center; padding-left: 0.5rem;">
+            <button class="btn btn-sm btn-outline-primary me-2" onclick="handleCopy('${ticket.id}', this)" data-bs-toggle="tooltip" data-bs-placement="top" title="Copy ticket number">
+              <i class="bi bi-clipboard"></i>
+            </button>
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#validationCollapse${index}" aria-expanded="false" aria-controls="validationCollapse${index}" style="flex-grow: 1;">
+              ${ticket.id} - ${ticket.title || 'N/A'}
+            </button>
+          </h2>
+          <div id="validationCollapse${index}" class="accordion-collapse collapse">
+            <div class="accordion-body">
+              <div class="row">
+                <div class="col-md-6">
+                  <p><strong>Description:</strong> ${fullDescription}</p>
+                  <p><strong>Status:</strong> ${status}</p>
+                  <p><strong>Priority:</strong> ${priority}</p>
+                  <p><strong>Assigned To:</strong> ${assignedTo}</p>
+                  <p><strong>Affected User:</strong> ${affectedUser}</p>
+                </div>
+                <div class="col-md-6">
+                  <p><strong>Created:</strong> ${createdDate}</p>
+                  <p><strong>Location:</strong> ${location}</p>
+                  <p><strong>Source:</strong> ${source}</p>
+                  <p><strong>Support Group:</strong> ${supportGroup}</p>
+                  <p><strong>Resolution Notes:</strong> ${resolutionNotes}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    html += '</div>';
+  }
+
+  debugLog('[WIDGET] - Setting innerHTML for validation tickets');
+  container.innerHTML = html;
+
+  // Initialize Bootstrap tooltips for copy buttons
+  const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+  tooltipTriggerList.forEach(tooltipTriggerEl => {
+    new bootstrap.Tooltip(tooltipTriggerEl);
+  });
+
+  // Initialize expand/collapse all toggle button
+  const toggleAllBtn = document.getElementById('validation-toggle-all-btn');
+  if (toggleAllBtn) {
+    let isExpanded = false;
+    toggleAllBtn.addEventListener('click', function() {
+      const accordions = document.querySelectorAll('#validationTicketsAccordion .accordion-collapse');
+      const icon = this.querySelector('i');
+
+      if (isExpanded) {
+        // Collapse all
+        accordions.forEach(collapse => {
+          const bsCollapse = new bootstrap.Collapse(collapse, { hide: true });
+          const button = collapse.previousElementSibling.querySelector('.accordion-button');
+          if (button) {
+            button.classList.add('collapsed');
+            button.setAttribute('aria-expanded', 'false');
+          }
+        });
+        // Update button
+        icon.className = 'bi bi-chevron-down me-1';
+        this.innerHTML = '<i class="bi bi-chevron-down me-1"></i>Expand All';
+        isExpanded = false;
+      } else {
+        // Expand all
+        accordions.forEach(collapse => {
+          const bsCollapse = new bootstrap.Collapse(collapse, { show: true });
+          const button = collapse.previousElementSibling.querySelector('.accordion-button');
+          if (button) {
+            button.classList.remove('collapsed');
+            button.setAttribute('aria-expanded', 'true');
+          }
+        });
+        // Update button
+        icon.className = 'bi bi-chevron-up me-1';
+        this.innerHTML = '<i class="bi bi-chevron-up me-1"></i>Collapse All';
+        isExpanded = true;
+      }
+    });
+  }
+
+  debugLog('[WIDGET] - Validation tickets display completed');
+}
+
 function displayOnenoteDocuments(docs) {
   debugLog('[WIDGET] - Displaying OneNote documents, count:', docs.length);
   const container = document.getElementById('content-area');
@@ -748,10 +873,47 @@ document.addEventListener('DOMContentLoaded', function() {
             toggleButtons.insertAdjacentElement('afterend', batchButtonsContainer);
           }
 
-          // Add click event listeners for batch workflow buttons (placeholders for now)
-          document.getElementById('get-validation-tickets-btn').addEventListener('click', function() {
-            alert('Get validation tickets functionality will be implemented in the backend.');
-          });
+              // Add click event listeners for batch workflow buttons
+              document.getElementById('get-validation-tickets-btn').addEventListener('click', async function() {
+                debugLog('[WIDGET] - Get validation tickets button clicked');
+
+                // Show loading spinner in content area
+                if (!document.getElementById('content-area')) {
+                  const contentArea = document.createElement('div');
+                  contentArea.id = 'content-area';
+                  contentArea.className = 'mt-4';
+                  const mainContent = document.querySelector('.main-content');
+                  mainContent.appendChild(contentArea);
+                }
+                document.getElementById('content-area').innerHTML = '<div class="d-flex justify-content-center my-4"><div class="spinner-grow text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+
+                try {
+                  const response = await fetch('/api/get-validation-tickets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                  });
+
+                  if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                  }
+
+                  const data = await response.json();
+                  debugLog('[WIDGET] - Validation tickets API response:', data);
+
+                  displayValidationTickets(data);
+                } catch (error) {
+                  debugLog('[WIDGET] - Error fetching validation tickets:', error);
+                  if (!document.getElementById('content-area')) {
+                    const contentArea = document.createElement('div');
+                    contentArea.id = 'content-area';
+                    contentArea.className = 'mt-4';
+                    const mainContent = document.querySelector('.main-content');
+                    mainContent.appendChild(contentArea);
+                  }
+                  document.getElementById('content-area').innerHTML = '<div class="alert alert-danger">Error loading validation tickets: ' + error.message + '</div>';
+                }
+              });
           document.getElementById('get-ticket-recommendations-btn').addEventListener('click', function() {
             alert('Get ticket recommendations functionality will be implemented in the backend.');
           });
@@ -1157,9 +1319,46 @@ document.addEventListener('DOMContentLoaded', function() {
                 toggleButtons.insertAdjacentElement('afterend', batchButtonsContainer);
               }
 
-              // Add click event listeners for batch workflow buttons (placeholders for now)
-              document.getElementById('get-validation-tickets-btn').addEventListener('click', function() {
-                alert('Get validation tickets functionality will be implemented in the backend.');
+              // Add click event listeners for batch workflow buttons
+              document.getElementById('get-validation-tickets-btn').addEventListener('click', async function() {
+                debugLog('[WIDGET] - Get validation tickets button clicked');
+
+                // Show loading spinner in content area
+                if (!document.getElementById('content-area')) {
+                  const contentArea = document.createElement('div');
+                  contentArea.id = 'content-area';
+                  contentArea.className = 'mt-4';
+                  const mainContent = document.querySelector('.main-content');
+                  mainContent.appendChild(contentArea);
+                }
+                document.getElementById('content-area').innerHTML = '<div class="d-flex justify-content-center my-4"><div class="spinner-grow text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+
+                try {
+                  const response = await fetch('/api/get-validation-tickets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                  });
+
+                  if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                  }
+
+                  const data = await response.json();
+                  debugLog('[WIDGET] - Validation tickets API response:', data);
+
+                  displayValidationTickets(data);
+                } catch (error) {
+                  debugLog('[WIDGET] - Error fetching validation tickets:', error);
+                  if (!document.getElementById('content-area')) {
+                    const contentArea = document.createElement('div');
+                    contentArea.id = 'content-area';
+                    contentArea.className = 'mt-4';
+                    const mainContent = document.querySelector('.main-content');
+                    mainContent.appendChild(contentArea);
+                  }
+                  document.getElementById('content-area').innerHTML = '<div class="alert alert-danger">Error loading validation tickets: ' + error.message + '</div>';
+                }
               });
               document.getElementById('get-ticket-recommendations-btn').addEventListener('click', function() {
                 alert('Get ticket recommendations functionality will be implemented in the backend.');

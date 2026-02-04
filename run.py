@@ -620,6 +620,74 @@ def api_get_ticket_advice():
     else:
         return jsonify({'error': 'Missing ticketId'}), 400
 
+@app.route('/api/get-validation-tickets', methods=['POST'])
+def api_get_validation_tickets():
+    output = Output()
+    if DEBUG:
+        output.add_line("Starting api_get_validation_tickets")
+
+    try:
+        athena = Athena()
+
+        # Get ticket IDs from validation queue
+        ticket_ids = athena.get_validation_tickets()
+        if not ticket_ids:
+            output.add_line("No validation tickets found")
+            return jsonify({'tickets': [], 'count': 0})
+
+        if DEBUG:
+            output.add_line(f"Found {len(ticket_ids)} validation ticket IDs: {ticket_ids[:5]}{'...' if len(ticket_ids) > 5 else ''}")
+
+        # Get full ticket data for each ID
+        validation_tickets = []
+        for ticket_id in ticket_ids:
+            try:
+                ticket_data = athena.get_ticket_data(ticket_number=ticket_id, view=True)
+                if ticket_data and 'result' in ticket_data and ticket_data['result']:
+                    ticket = ticket_data['result'][0]
+                    # Truncate description to first 32 characters
+                    truncated_desc = ticket.get('description', '')[:32]
+                    if len(ticket.get('description', '')) > 32:
+                        truncated_desc += '...'
+
+                    # Format ticket for frontend display
+                    validation_ticket = {
+                        'id': ticket.get('id'),
+                        'title': ticket.get('title'),
+                        'description': truncated_desc,  # First 32 chars + ellipsis if truncated
+                        'full_description': ticket.get('description', ''),  # Full description for expansion
+                        'priority': ticket.get('priority'),  # Priority level
+                        'location': ticket.get('location'),   # Location
+                        'created_at': ticket.get('created_at'),  # Creation date
+                        'status': ticket.get('status', ''),  # Status
+                        'assigned_to': ticket.get('assigned_to', ''),  # Assigned to
+                        'affected_user': ticket.get('affected_user', ''),  # Affected user
+                        'source': ticket.get('source', ''),  # Source
+                        'support_group': ticket.get('support_group', ''),  # Support group
+                        'resolution_notes': ticket.get('resolution_notes', '')  # Resolution notes
+                    }
+                    validation_tickets.append(validation_ticket)
+                    if DEBUG:
+                        output.add_line(f"Added ticket {ticket_id}")
+                else:
+                    if DEBUG:
+                        output.add_line(f"Failed to get data for ticket {ticket_id}")
+            except Exception as e:
+                output.add_line(f"Error processing ticket {ticket_id}: {str(e)}")
+                continue
+
+        if DEBUG:
+            output.add_line(f"Returning {len(validation_tickets)} validation tickets")
+
+        return jsonify({
+            'tickets': validation_tickets,
+            'count': len(validation_tickets)
+        })
+
+    except Exception as e:
+        output.add_line(f"Error in api_get_validation_tickets: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
     # get_ticket_advice("IR10226122")
