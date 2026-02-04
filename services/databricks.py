@@ -149,15 +149,16 @@ class Databricks:
                         columns = [col['name'] for col in result_data['result'].get('columns', [])]
 
                         # Fallback column names when API doesn't provide them (SELECT * queries issue)
-                        if not columns and table_records and len(table_records[0]) == 33:
+                        if not columns and table_records and len(table_records[0]) == 35:
                             if DEBUG:
                                 self.output.add_line("Using fallback column names for athena_tickets table")
                             columns = [
                                 'TicketType', 'Location', 'Floor', 'Room', 'CreatedDate', 'ResolvedDate', 'Priority', 'Id', 'Title',
                                 'Description', 'SupportGroup', 'Source', 'Status', 'Impact', 'Urgency', 'AssignedToUserName',
-                                'AffectedUserName', 'LastModifiedDate', 'Escalated', 'First_Call_Resolution', 'Classification/Area',
-                                'ResolutionCategory', 'ResolutionNotes', 'CommandCenter', 'ConfirmedResolution', 'Increments',
-                                'FeedbackValue', 'Feedback_Notes', 'Tags', 'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
+                                'AssignedToBaseManagedEntityId', 'AffectedUserName', 'AffectedBaseManagedEntityId', 'LastModifiedDate',
+                                'Escalated', 'First_Call_Resolution', 'Classification/Area', 'ResolutionCategory', 'ResolutionNotes',
+                                'CommandCenter', 'ConfirmedResolution', 'Increments', 'FeedbackValue', 'Feedback_Notes', 'Tags',
+                                'Specialty', 'Next_Steps', 'User_Assign_Change', 'Support_Group_Change'
                             ]
 
                         # Fallback for aggregate queries when no columns are provided

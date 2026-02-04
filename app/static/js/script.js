@@ -1,7 +1,7 @@
 console.log('Script loaded. ToggleButton available:', typeof ToggleButton);
 
 // Debug logging system - set to true to enable console logging for development
-const DEBUG = false;
+const DEBUG = true;
 
 /**
  * Debug logging function - only logs when DEBUG is true
@@ -13,12 +13,40 @@ function debugLog(message) {
   }
 }
 
+function truncateExplanation(text, maxLength) {
+  if (!text || text.length <= maxLength) {
+    return text;
+  }
+  return text.substring(0, maxLength) + '...';
+}
+
+function toggleExplanation(button) {
+  const container = button.closest('.explanation-container');
+  const truncated = container.querySelector('.truncated-explanation');
+  const full = container.querySelector('.full-explanation');
+
+  if (truncated.style.display === 'none') {
+    // Currently showing full, switch to truncated
+    full.style.display = 'none';
+    truncated.style.display = 'inline';
+    button.textContent = 'Show More';
+  } else {
+    // Currently showing truncated, switch to full
+    truncated.style.display = 'none';
+    full.style.display = 'inline';
+    button.textContent = 'Show Less';
+  }
+}
+
 function createSearchToggleButtons() {
+    debugLog('[WIDGET] - Starting creation of search toggle buttons');
     const container = document.getElementById('search-toggles-container');
+    debugLog('[WIDGET] - Container element retrieved:', container ? 'found' : 'not found');
 
     // Create the flex container div
     const toggleDiv = document.createElement('div');
     toggleDiv.className = 'd-flex justify-content-center align-items-center';
+    debugLog('[WIDGET] - Toggle container div created');
 
     // Define button configurations
     const buttonConfigs = [
@@ -62,26 +90,34 @@ function createSearchToggleButtons() {
 
     // Create and append each button
     buttonConfigs.forEach(config => {
+        debugLog('[WIDGET] - Creating button:', config.id);
         const button = document.createElement('button');
         button.id = config.id;
         button.className = config.className;
         button.setAttribute('aria-label', config.ariaLabel);
         button.style.cssText = config.marginLeft;
+        debugLog('[WIDGET] - Button ' + config.id + ' element created with classes and attributes');
 
         const img = document.createElement('img');
         img.id = config.imgId;
         img.src = config.imgSrc;
         img.alt = config.imgAlt;
         img.className = 'img-fluid';
+        debugLog('[WIDGET] - Image element created for button ' + config.id);
 
         button.appendChild(img);
+        debugLog('[WIDGET] - Image appended to button ' + config.id);
         toggleDiv.appendChild(button);
+        debugLog('[WIDGET] - Button ' + config.id + ' appended to toggle container');
     });
 
     // Add to container
+    debugLog('[WIDGET] - Appending toggle container to main container');
     container.appendChild(toggleDiv);
+    debugLog('[WIDGET] - Toggle buttons creation completed');
 
     // Return the button elements for any initialization that needs them
+    debugLog('[WIDGET] - Returning button references');
     return {
         phoneBtn: container.querySelector('#phone-toggle'),
         matchBtn: container.querySelector('#match-toggle'),
@@ -91,9 +127,12 @@ function createSearchToggleButtons() {
 }
 
 async function copyToClipboard(text) {
+  debugLog('[WIDGET] - Copy to clipboard triggered for text:', text);
   try {
     await navigator.clipboard.writeText(text);
+    debugLog('[WIDGET] - Clipboard write successful');
   } catch (err) {
+    debugLog('[WIDGET] - Clipboard write failed, using fallback');
     // Fallback for HTTP contexts
     const textArea = document.createElement('textarea');
     textArea.value = text;
@@ -102,36 +141,44 @@ async function copyToClipboard(text) {
     textArea.focus();
     document.execCommand('copy');
     document.body.removeChild(textArea);
+    debugLog('[WIDGET] - Fallback copy executed');
   }
 }
 
 async function handleCopy(ticketId, button) {
+  debugLog('[WIDGET] - Handle copy called for ticketId:', ticketId, 'button element:', button.id);
   try {
     await copyToClipboard(ticketId);
 
+    debugLog('[WIDGET] - Hiding tooltip after copy');
     // Hide tooltip immediately after successful copy
     const tooltip = bootstrap.Tooltip.getInstance(button);
     if (tooltip) tooltip.hide();
 
+    debugLog('[WIDGET] - Updating button to success state');
     // Change to check mark
     const icon = button.querySelector('i');
     icon.className = 'bi bi-check-lg';
     button.classList.remove('btn-outline-primary');
     button.classList.add('btn-success');
 
+    debugLog('[WIDGET] - Setting timeout to revert button state');
     // Revert after 3 seconds
     setTimeout(() => {
+      debugLog('[WIDGET] - Reverting button to original state');
       icon.className = 'bi bi-clipboard';
       button.classList.remove('btn-success');
       button.classList.add('btn-outline-primary');
     }, 3000);
   } catch (err) {
+    debugLog('[WIDGET] - Copy operation failed');
     console.error('Copy failed:', err);
   }
   event?.stopPropagation();
 }
 
 function displaySearchResults(data, searchValue, searchType) {
+  debugLog('[WIDGET] - Displaying search results for', searchType, 'searchValue:', searchValue, 'result count:', data.resultCount);
   const container = document.getElementById('content-area');
 
   // Result counter
@@ -185,16 +232,20 @@ function displaySearchResults(data, searchValue, searchType) {
   });
   
   html += '</div>';
+  debugLog('[WIDGET] - Setting innerHTML for search results');
   container.innerHTML = html;
 
+  debugLog('[WIDGET] - Initializing tooltips for copy buttons');
   // Initialize Bootstrap tooltips for copy buttons
   const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
   tooltipTriggerList.forEach(tooltipTriggerEl => {
     new bootstrap.Tooltip(tooltipTriggerEl);
   });
+  debugLog('[WIDGET] - Search results display completed');
 }
 
 function displayAssignmentRecommendations(data) {
+  debugLog('[WIDGET] - Displaying assignment recommendations');
   const container = document.getElementById('content-area');
 
   // Display section header for AI recommendations
@@ -223,7 +274,13 @@ function displayAssignmentRecommendations(data) {
             <div class="col-md-6">
               <h6 class="card-title">Detailed AI Analysis</h6>
               <div class="border-start border-primary border-3 ps-3">
-                <p class="mb-0">${data.detailed_explanation || 'No detailed analysis available.'}</p>
+                <div class="explanation-container" data-full-text="${encodeURIComponent(data.detailed_explanation || 'No detailed analysis available.')}">
+                  <div class="truncated-explanation"></div>
+                  <div class="full-explanation" style="display: none;"></div>
+                  ${(data.detailed_explanation || '').length > 250 ?
+                    '<div class="mt-2"><button class="btn btn-link btn-sm p-0 explanation-toggle" onclick="toggleExplanation(this)">Show More</button></div>' :
+                    ''}
+                </div>
               </div>
             </div>
           </div>
@@ -232,17 +289,45 @@ function displayAssignmentRecommendations(data) {
     `;
   }
 
+  debugLog('[WIDGET] - Setting innerHTML for assignment recommendations');
   container.innerHTML = html;
+
+  // Process Markdown formatting for the explanation
+  const explanationContainer = container.querySelector('.explanation-container');
+  if (explanationContainer) {
+    const fullText = decodeURIComponent(explanationContainer.getAttribute('data-full-text') || '');
+    const truncatedEl = explanationContainer.querySelector('.truncated-explanation');
+    const fullEl = explanationContainer.querySelector('.full-explanation');
+    const toggleButton = explanationContainer.querySelector('.explanation-toggle');
+    const needsTruncation = toggleButton && fullText.length > 250;
+
+    if (truncatedEl && fullEl) {
+      if (needsTruncation) {
+        // Set truncated text visible, full hidden
+        const truncatedMarkdown = fullText.substring(0, 250) + '...';
+        truncatedEl.innerHTML = marked.parse(truncatedMarkdown);
+        fullEl.innerHTML = marked.parse(fullText);
+      } else {
+        // Show full text in the appropriate element, hide the other
+        fullEl.innerHTML = marked.parse(fullText);
+        fullEl.style.display = 'inline';
+        truncatedEl.style.display = 'none';
+      }
+    }
+  }
+
+  debugLog('[WIDGET] - Assignment recommendations display completed');
 }
 
 function displaySimilarTickets(data) {
+  debugLog('[WIDGET] - Displaying similar tickets, count:', data.length);
   const container = document.getElementById('content-area');
 
   // Append to existing content - similar tickets go after original ticket
   let html = '';
 
   // Accordion for similar tickets
-  html += '<div class="accordion mt-5" id="similarTicketsAccordion">';
+  html += '<div class="accordion" id="similarTicketsAccordion">';
 
   data.forEach((ticket, index) => {
     const createdDate = new Date(ticket.createdDate).toLocaleDateString();
@@ -294,6 +379,7 @@ function displaySimilarTickets(data) {
 }
 
 function displayOnenoteDocuments(docs) {
+  debugLog('[WIDGET] - Displaying OneNote documents, count:', docs.length);
   const container = document.getElementById('content-area');
 
   let html = '';
@@ -339,10 +425,11 @@ function displayOnenoteDocuments(docs) {
 }
 
 function displayOriginalTicket(data) {
+  debugLog('[WIDGET] - Displaying original ticket');
   const container = document.getElementById('content-area');
 
   // Display header indicating this is the main ticket being analyzed
-  let html = '<h4 class="mb-3">Ticket for Assignment Analysis</h4>';
+  let html = '<div class="mt-5 pt-4 border-top text-start"><h4>Ticket for Assignment Analysis</h4></div>';
 
   // Accordion for the single original ticket
   html += '<div class="accordion" id="originalTicketAccordion">';
@@ -403,9 +490,12 @@ function displayOriginalTicket(data) {
 }
 
 // Initialize phone, match, semantic, and ticket on page load
+debugLog('[WIDGET] - DOMContentLoaded event fired, starting initialization');
 document.addEventListener('DOMContentLoaded', function() {
+  debugLog('[WIDGET] - Creating and initializing search toggle buttons');
   // Create and initialize search toggle buttons
   const searchButtons = createSearchToggleButtons();
+  debugLog('[WIDGET] - Search toggle buttons created:', searchButtons ? 'returned references' : 'null');
 
   const phone = ToggleButton.loadPreference(true, 'phoneOn', 'phone_icon', 'phone-icon', 'phone-toggle');
   const match = ToggleButton.loadPreference(false, 'matchOn', 'sentence_match_icon', 'match-icon', 'match-toggle');
@@ -831,15 +921,21 @@ document.addEventListener('DOMContentLoaded', function() {
   const searchBtn = document.getElementById('ticket-search-nav-btn');
   if (searchBtn) {
     searchBtn.addEventListener('click', function() {
-      // Remove any existing assignment toggle buttons
-      const assignmentToggles = document.querySelectorAll('.main-content .d-flex:not(:has(#phone-toggle))');
-      assignmentToggles.forEach(div => div.remove());
+      // Restore the search input area if it was hidden
+      const inputGroup = document.querySelector('.input-group');
+      if (inputGroup) {
+        inputGroup.style.display = 'flex';
+      }
 
       // Hide batch buttons if present
       const batchButtonsContainer = document.getElementById('batch-workflow-buttons');
       if (batchButtonsContainer) {
         batchButtonsContainer.remove();
       }
+
+      // Remove any existing assignment toggle buttons
+      const assignmentToggles = document.querySelectorAll('.main-content .d-flex:not(:has(#phone-toggle))');
+      assignmentToggles.forEach(div => div.remove());
 
       // Show search buttons by removing d-none and finding the div
       let searchDiv = null;

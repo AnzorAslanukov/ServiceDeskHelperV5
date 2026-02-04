@@ -5,7 +5,7 @@ class Output:
         clear_on_init: If True, clears output.txt on initialization
         """
         if clear_on_init:
-            with open("output.txt", "w") as f:
+            with open("output.txt", "w", encoding='utf-8') as f:
                 pass  # Create/empty file
 
     def add_line(self, line):
@@ -13,5 +13,5 @@ class Output:
         Appends a line of text to output.txt, followed by newline.
         line: String to add
         """
-        with open("output.txt", "a") as f:
+        with open("output.txt", "a", encoding='utf-8') as f:
             f.write(line + "\n")
