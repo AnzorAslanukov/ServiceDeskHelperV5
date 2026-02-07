@@ -688,6 +688,111 @@ def api_get_validation_tickets():
         output.add_line(f"Error in api_get_validation_tickets: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/get-validation-tickets-stream', methods=['GET'])
+def api_get_validation_tickets_stream():
+    """
+    Stream validation tickets using Server-Sent Events (SSE).
+    Each ticket is sent as it's fetched from Athena, allowing progressive display.
+    
+    Event types:
+    - count: Total number of tickets to expect
+    - ticket: Individual ticket data
+    - complete: All tickets processed
+    - error: Error message
+    """
+    output = Output()
+    if DEBUG:
+        output.add_line("Starting api_get_validation_tickets_stream")
+
+    def generate_stream():
+        try:
+            athena = Athena()
+
+            # Get ticket IDs from validation queue
+            ticket_ids = athena.get_validation_tickets()
+            if not ticket_ids:
+                yield f"event: count\ndata: {json.dumps({'count': 0})}\n\n"
+                yield f"event: complete\ndata: {json.dumps({'message': 'No validation tickets found'})}\n\n"
+                return
+
+            total_count = len(ticket_ids)
+            if DEBUG:
+                output.add_line(f"Streaming {total_count} validation tickets")
+
+            # Send total count first
+            yield f"event: count\ndata: {json.dumps({'count': total_count})}\n\n"
+
+            # Stream each ticket as it's fetched
+            for index, ticket_id in enumerate(ticket_ids):
+                try:
+                    ticket_data = athena.get_ticket_data(ticket_number=ticket_id, view=True)
+                    if ticket_data and 'result' in ticket_data and ticket_data['result']:
+                        ticket = ticket_data['result'][0]
+                        
+                        # Truncate description to first 32 characters
+                        truncated_desc = ticket.get('description', '')[:32]
+                        if len(ticket.get('description', '')) > 32:
+                            truncated_desc += '...'
+
+                        # Format ticket for frontend display
+                        validation_ticket = {
+                            'id': ticket.get('id'),
+                            'title': ticket.get('title'),
+                            'description': truncated_desc,
+                            'full_description': ticket.get('description', ''),
+                            'priority': ticket.get('priority'),
+                            'location': ticket.get('location'),
+                            'created_at': ticket.get('created_at'),
+                            'status': ticket.get('status', ''),
+                            'assigned_to': ticket.get('assigned_to', ''),
+                            'affected_user': ticket.get('affected_user', ''),
+                            'source': ticket.get('source', ''),
+                            'support_group': ticket.get('support_group', ''),
+                            'resolution_notes': ticket.get('resolution_notes', ''),
+                            'index': index  # Include index for ordering
+                        }
+                        
+                        if DEBUG:
+                            output.add_line(f"Streaming ticket {index + 1}/{total_count}: {ticket_id}")
+                        
+                        # Send ticket event
+                        yield f"event: ticket\ndata: {json.dumps(validation_ticket)}\n\n"
+                    else:
+                        if DEBUG:
+                            output.add_line(f"Failed to get data for ticket {ticket_id}")
+                        
+                        # Send error for this specific ticket but continue
+                        yield f"event: error\ndata: {json.dumps({'index': index, 'ticket_id': ticket_id, 'message': 'Failed to fetch ticket data'})}\n\n"
+                
+                except Exception as e:
+                    error_msg = f"Error processing ticket {ticket_id}: {str(e)}"
+                    if DEBUG:
+                        output.add_line(error_msg)
+                    yield f"event: error\ndata: {json.dumps({'index': index, 'ticket_id': ticket_id, 'message': str(e)})}\n\n"
+
+            # Send completion event
+            yield f"event: complete\ndata: {json.dumps({'message': 'All tickets processed', 'count': total_count})}\n\n"
+            
+            if DEBUG:
+                output.add_line("Finished streaming validation tickets")
+
+        except Exception as e:
+            error_msg = f"Error in stream: {str(e)}"
+            if DEBUG:
+                output.add_line(error_msg)
+            yield f"event: error\ndata: {json.dumps({'message': error_msg})}\n\n"
+
+    return app.response_class(
+        generate_stream(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'  # Disable nginx buffering if present
+        }
+    )
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
     # get_ticket_advice("IR10226122")

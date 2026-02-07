@@ -100,40 +100,54 @@ class BatchProcessor {
       completed: this.completed
     });
 
+    // Notify that we're starting to process this ticket
+    if (callbacks.onTicketStart) {
+      callbacks.onTicketStart(item, this.queueIndex, this.ticketItems.length);
+    }
+
     try {
       const data = await this.fetchRecommendation(item.id);
       debugLog('[BATCH_PROCESSOR] - Received recommendations for', item.id);
 
       this.completed++;
 
-      if (callbacks.onProgress) {
-        callbacks.onProgress(this.completed, this.ticketItems.length);
-      }
+      // Use setTimeout to allow browser to render before calling callbacks
+      setTimeout(() => {
+        if (callbacks.onProgress) {
+          callbacks.onProgress(this.completed, this.ticketItems.length);
+        }
 
-      if (callbacks.onTicketComplete) {
-        callbacks.onTicketComplete(item, data);
-      }
+        if (callbacks.onTicketComplete) {
+          callbacks.onTicketComplete(item, data);
+        }
+      }, 0);
 
     } catch (error) {
       debugLog('[BATCH_PROCESSOR] - Error processing ticket', item.id, error);
 
       this.completed++;
 
-      if (callbacks.onProgress) {
-        callbacks.onProgress(this.completed, this.ticketItems.length);
-      }
+      // Use setTimeout to allow browser to render before calling callbacks
+      setTimeout(() => {
+        if (callbacks.onProgress) {
+          callbacks.onProgress(this.completed, this.ticketItems.length);
+        }
 
-      if (callbacks.onError) {
-        callbacks.onError(item, error);
-      }
+        if (callbacks.onError) {
+          callbacks.onError(item, error);
+        }
+      }, 0);
 
     } finally {
       this.activeRequests--;
 
-      // Try to start next request if there are more and we're below batch limit
-      if (this.queueIndex < this.ticketItems.length && this.activeRequests < this.batchSize) {
-        this._startNextRequest(callbacks);
-      }
+      // Add small delay before starting next request to allow browser to render
+      setTimeout(() => {
+        // Try to start next request if there are more and we're below batch limit
+        if (this.queueIndex < this.ticketItems.length && this.activeRequests < this.batchSize) {
+          this._startNextRequest(callbacks);
+        }
+      }, 50); // 50ms delay to let browser render updates
     }
   }
 

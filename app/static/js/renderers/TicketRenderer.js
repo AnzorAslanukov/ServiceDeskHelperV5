@@ -106,6 +106,96 @@ class TicketRenderer {
   }
 
   /**
+   * Initialize the container for streaming validation tickets
+   * Sets up the header and empty accordion ready to receive tickets
+   * @param {number} expectedCount - Total number of tickets expected (or null if unknown)
+   * @returns {HTMLElement} The accordion container element
+   */
+  static renderValidationTicketsStreamingInit(expectedCount = null) {
+    debugLog('[RENDERER] - Initializing streaming validation tickets container');
+    const container = ensureContentArea();
+
+    const countText = expectedCount !== null ? `0/${expectedCount}` : 'loading...';
+    const loadingHtml = `
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Validation Tickets (${countText})</h4>
+        <div class="d-flex gap-2 align-items-center">
+          <span id="streaming-progress" class="text-muted small">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Loading tickets...
+          </span>
+          <button id="${CONSTANTS.SELECTORS.VALIDATION_TOGGLE_ALL_BTN}" class="btn btn-outline-secondary" type="button" disabled>
+            <i class="bi bi-chevron-down me-1"></i>Expand All
+          </button>
+          <div id="${CONSTANTS.SELECTORS.BATCH_PROGRESS_INDICATOR}" class="d-none align-items-center">
+            <span id="${CONSTANTS.SELECTORS.BATCH_PROGRESS_TEXT}"></span>
+          </div>
+        </div>
+      </div>
+      <div class="accordion" id="${CONSTANTS.SELECTORS.VALIDATION_ACCORDION}"></div>
+    `;
+
+    container.innerHTML = loadingHtml;
+    initializeTooltips();
+
+    return document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+  }
+
+  /**
+   * Update the streaming progress indicator
+   * @param {number} loadedCount - Number of tickets loaded so far
+   * @param {number} totalCount - Total number of tickets expected
+   * @param {boolean} isComplete - Whether loading is complete
+   */
+  static updateStreamingProgress(loadedCount, totalCount, isComplete = false) {
+    const header = document.querySelector('.main-content h4.mb-0');
+    const progressSpan = document.getElementById('streaming-progress');
+    const toggleBtn = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_TOGGLE_ALL_BTN);
+
+    if (header) {
+      header.textContent = `Validation Tickets (${loadedCount}/${totalCount})`;
+    }
+
+    if (progressSpan) {
+      if (isComplete) {
+        progressSpan.innerHTML = `<i class="bi bi-check-circle text-success me-2"></i>${loadedCount} tickets loaded`;
+        progressSpan.classList.remove('text-muted');
+        progressSpan.classList.add('text-success');
+      } else {
+        progressSpan.innerHTML = `
+          <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+          Loading ticket ${loadedCount + 1} of ${totalCount}...
+        `;
+      }
+    }
+
+    if (toggleBtn && isComplete) {
+      toggleBtn.disabled = false;
+      this._initializeExpandCollapseButton();
+    }
+  }
+
+  /**
+   * Append a single validation ticket to the accordion (for streaming mode)
+   * @param {Object} ticket - Ticket data
+   * @param {number} index - Ticket index
+   */
+  static appendValidationTicket(ticket, index) {
+    const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+    if (!accordion) {
+      debugLog('[RENDERER] - Validation accordion not found, cannot append ticket');
+      return;
+    }
+
+    const ticketHtml = this._renderValidationAccordionItem(ticket, index);
+    accordion.insertAdjacentHTML('beforeend', ticketHtml);
+
+    // Initialize tooltips for the new ticket
+    initializeTooltips();
+    debugLog('[RENDERER] - Appended validation ticket', index, ticket.id);
+  }
+
+  /**
    * Render OneNote documents
    * @param {Array} docs - Array of OneNote document objects
    */

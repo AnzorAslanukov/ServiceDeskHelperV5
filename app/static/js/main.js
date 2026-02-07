@@ -124,7 +124,7 @@ function attachBatchButtonListeners() {
   debugLog('[MAIN] - Attaching batch button listeners');
 
   assignmentUIManager.attachBatchButtonListeners({
-    onGetValidationTickets: handleGetValidationTickets,
+    onGetValidationTickets: handleGetValidationTicketsStream,
     onGetRecommendations: handleGetRecommendations,
     onImplementAssignment: handleImplementAssignment
   });
@@ -306,6 +306,88 @@ async function handleGetValidationTickets() {
 }
 
 /**
+ * Handle get validation tickets button click with streaming (SSE)
+ * Tickets are displayed one-by-one as they are fetched from the backend
+ */
+function handleGetValidationTicketsStream() {
+  debugLog('[MAIN] - Get validation tickets (streaming) clicked');
+
+  // Initialize the streaming container
+  TicketRenderer.renderValidationTicketsStreamingInit();
+  assignmentUIManager.disableRecommendationsButton();
+
+  // Create EventSource for SSE
+  const eventSource = new EventSource(CONSTANTS.API.GET_VALIDATION_TICKETS_STREAM);
+  
+  let totalCount = 0;
+  let loadedCount = 0;
+  let hasError = false;
+
+  eventSource.addEventListener('count', (event) => {
+    const data = JSON.parse(event.data);
+    totalCount = data.count;
+    debugLog('[MAIN] - Expected ticket count:', totalCount);
+    
+    if (totalCount === 0) {
+      TicketRenderer.renderError('No validation tickets found.');
+      eventSource.close();
+    } else {
+      // Update header with expected count
+      TicketRenderer.updateStreamingProgress(0, totalCount, false);
+    }
+  });
+
+  eventSource.addEventListener('ticket', (event) => {
+    const ticket = JSON.parse(event.data);
+    debugLog('[MAIN] - Received ticket:', ticket.id);
+    
+    // Append the ticket to the accordion
+    TicketRenderer.appendValidationTicket(ticket, ticket.index);
+    
+    // Update progress
+    loadedCount++;
+    TicketRenderer.updateStreamingProgress(loadedCount, totalCount, false);
+  });
+
+  eventSource.addEventListener('error', (event) => {
+    const errorData = JSON.parse(event.data);
+    debugLog('[MAIN] - Stream error:', errorData);
+    
+    // Log error but continue processing other tickets
+    if (errorData.ticket_id) {
+      console.warn(`Error loading ticket ${errorData.ticket_id}: ${errorData.message}`);
+    } else {
+      // Fatal error
+      hasError = true;
+      TicketRenderer.renderError('Error loading validation tickets: ' + errorData.message);
+      eventSource.close();
+    }
+  });
+
+  eventSource.addEventListener('complete', (event) => {
+    const data = JSON.parse(event.data);
+    debugLog('[MAIN] - Stream complete:', data);
+    
+    // Update final progress
+    TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
+    
+    // Enable the recommendations button
+    assignmentUIManager.enableRecommendationsButton();
+    
+    eventSource.close();
+  });
+
+  // Handle connection errors
+  eventSource.onerror = (error) => {
+    debugLog('[MAIN] - EventSource connection error:', error);
+    if (!hasError && loadedCount === 0) {
+      TicketRenderer.renderError('Connection error while loading validation tickets. Please try again.');
+    }
+    eventSource.close();
+  };
+}
+
+/**
  * Handle get ticket recommendations button click (batch processing)
  */
 async function handleGetRecommendations() {
@@ -328,22 +410,43 @@ async function handleGetRecommendations() {
 
   debugLog('[MAIN] - Found', ticketItems.length, 'tickets to process');
 
+  // Disable the recommendations button during processing
+  const recommendationsBtn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
+  if (recommendationsBtn) {
+    recommendationsBtn.disabled = true;
+  }
+
+  // Show initial progress
+  assignmentUIManager.showRecommendationProgress(1, ticketItems.length, ticketItems[0].id);
+
   // Process tickets in batches
   await batchProcessor.processTickets(ticketItems, {
+    onTicketStart: (item, current, total) => {
+      // Update progress when starting a new ticket
+      assignmentUIManager.showRecommendationProgress(current, total, item.id);
+    },
     onProgress: (completed, total) => {
-      assignmentUIManager.updateProgress(`Processing recommendations: ${completed}/${total}`);
+      // Progress is now handled in onTicketStart for better UX
+      debugLog('[MAIN] - Progress:', completed, 'of', total);
     },
     onTicketComplete: (item, data) => {
+      // Render the recommendation immediately when received
       TicketRenderer.renderRecommendations(data, true, item.index);
+      debugLog('[MAIN] - Rendered recommendation for ticket', item.id);
     },
     onError: (item, error) => {
       const errorData = { error: error.message || 'Failed to get recommendations' };
       TicketRenderer.renderRecommendations(errorData, true, item.index);
     },
     onComplete: () => {
-      setTimeout(() => {
-        assignmentUIManager.hideProgress();
-      }, 1000);
+      // Show completion message and re-enable button
+      assignmentUIManager.showRecommendationComplete(ticketItems.length);
+      
+      if (recommendationsBtn) {
+        recommendationsBtn.disabled = false;
+      }
+      
+      debugLog('[MAIN] - All recommendations complete');
     }
   });
 }

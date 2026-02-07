@@ -68,7 +68,8 @@ const CONSTANTS = {
   API: {
     SEARCH_TICKETS: '/api/search-tickets',
     GET_TICKET_ADVICE: '/api/get-ticket-advice',
-    GET_VALIDATION_TICKETS: '/api/get-validation-tickets'
+    GET_VALIDATION_TICKETS: '/api/get-validation-tickets',
+    GET_VALIDATION_TICKETS_STREAM: '/api/get-validation-tickets-stream'
   },
 
   // Default configuration values

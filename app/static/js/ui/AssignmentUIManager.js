@@ -194,6 +194,66 @@ class AssignmentUIManager {
   }
 
   /**
+   * Show recommendation processing progress with ticket info
+   * @param {number} current - Current ticket number being processed
+   * @param {number} total - Total number of tickets
+   * @param {string} [ticketId] - Optional ticket ID being processed
+   */
+  showRecommendationProgress(current, total, ticketId = null) {
+    const batchButtonsContainer = document.getElementById(CONSTANTS.SELECTORS.BATCH_WORKFLOW_BUTTONS);
+    if (!batchButtonsContainer) return;
+
+    // Check if progress element exists, create if not
+    let progressContainer = document.getElementById('recommendation-progress-container');
+    
+    if (!progressContainer) {
+      progressContainer = document.createElement('div');
+      progressContainer.id = 'recommendation-progress-container';
+      progressContainer.className = 'd-flex align-items-center gap-2 ms-3';
+      progressContainer.innerHTML = `
+        <div class="spinner-border spinner-border-sm text-primary" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <span id="recommendation-progress-text" class="text-muted small"></span>
+      `;
+      batchButtonsContainer.appendChild(progressContainer);
+    }
+
+    const progressText = document.getElementById('recommendation-progress-text');
+    if (progressText) {
+      const ticketInfo = ticketId ? ` (${ticketId})` : '';
+      progressText.textContent = `Processing ticket ${current}/${total}${ticketInfo}...`;
+    }
+
+    progressContainer.classList.remove('d-none');
+  }
+
+  /**
+   * Hide recommendation processing progress
+   */
+  hideRecommendationProgress() {
+    const progressContainer = document.getElementById('recommendation-progress-container');
+    if (progressContainer) {
+      progressContainer.classList.add('d-none');
+    }
+  }
+
+  /**
+   * Show completion message for recommendations
+   * @param {number} total - Total number of tickets processed
+   */
+  showRecommendationComplete(total) {
+    const progressContainer = document.getElementById('recommendation-progress-container');
+    if (progressContainer) {
+      progressContainer.innerHTML = `
+        <i class="bi bi-check-circle text-success"></i>
+        <span class="text-success small">${total} recommendations complete</span>
+      `;
+      progressContainer.classList.remove('d-none');
+    }
+  }
+
+  /**
    * Remove assignment toggle buttons from DOM
    */
   remove() {
