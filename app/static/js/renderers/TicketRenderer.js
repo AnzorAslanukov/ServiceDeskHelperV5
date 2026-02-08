@@ -128,6 +128,11 @@ class TicketRenderer {
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Validation Tickets (${countText})</h4>
         <div class="d-flex gap-2 align-items-center">
+          <div id="${CONSTANTS.SELECTORS.SELECTED_TICKETS_CONTAINER}" class="d-none align-items-center me-2">
+            <input type="checkbox" id="${CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX}" class="form-check-input me-2">
+            <label for="${CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX}" class="form-check-label me-2">Select All</label>
+            <span id="${CONSTANTS.SELECTORS.SELECTED_TICKETS_COUNT}" class="badge bg-primary">0 selected</span>
+          </div>
           <span id="streaming-progress" class="text-muted small">
             <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
             Loading tickets...
@@ -614,34 +619,53 @@ class TicketRenderer {
     const toggleAllBtn = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_TOGGLE_ALL_BTN);
     if (!toggleAllBtn) return;
 
-    let isExpanded = false;
-    toggleAllBtn.addEventListener('click', function() {
+    // Remove any existing click listeners by cloning and replacing
+    const newToggleBtn = toggleAllBtn.cloneNode(true);
+    toggleAllBtn.parentNode.replaceChild(newToggleBtn, toggleAllBtn);
+
+    newToggleBtn.addEventListener('click', function() {
       const accordions = document.querySelectorAll(`#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} .accordion-collapse`);
+      if (accordions.length === 0) return;
+
+      // Get current state from data attribute (default to false if not set)
+      const isExpanded = newToggleBtn.getAttribute('data-is-expanded') === 'true';
 
       if (isExpanded) {
         // Collapse all
         accordions.forEach(collapse => {
-          const bsCollapse = new bootstrap.Collapse(collapse, { hide: true });
-          const button = collapse.previousElementSibling.querySelector('.accordion-button');
+          const bsCollapse = bootstrap.Collapse.getInstance(collapse);
+          if (bsCollapse) {
+            bsCollapse.hide();
+          } else {
+            // If no instance exists, create one and hide it
+            new bootstrap.Collapse(collapse, { toggle: false }).hide();
+          }
+          const button = collapse.previousElementSibling?.querySelector('.accordion-button');
           if (button) {
             button.classList.add('collapsed');
             button.setAttribute('aria-expanded', 'false');
           }
         });
-        this.innerHTML = '<i class="bi bi-chevron-down me-1"></i>Expand All';
-        isExpanded = false;
+        newToggleBtn.innerHTML = '<i class="bi bi-chevron-down me-1"></i>Expand All';
+        newToggleBtn.setAttribute('data-is-expanded', 'false');
       } else {
         // Expand all
         accordions.forEach(collapse => {
-          const bsCollapse = new bootstrap.Collapse(collapse, { show: true });
-          const button = collapse.previousElementSibling.querySelector('.accordion-button');
+          const bsCollapse = bootstrap.Collapse.getInstance(collapse);
+          if (bsCollapse) {
+            bsCollapse.show();
+          } else {
+            // If no instance exists, create one and show it
+            new bootstrap.Collapse(collapse, { toggle: false }).show();
+          }
+          const button = collapse.previousElementSibling?.querySelector('.accordion-button');
           if (button) {
             button.classList.remove('collapsed');
             button.setAttribute('aria-expanded', 'true');
           }
         });
-        this.innerHTML = '<i class="bi bi-chevron-up me-1"></i>Collapse All';
-        isExpanded = true;
+        newToggleBtn.innerHTML = '<i class="bi bi-chevron-up me-1"></i>Collapse All';
+        newToggleBtn.setAttribute('data-is-expanded', 'true');
       }
     });
   }
@@ -649,23 +673,27 @@ class TicketRenderer {
   /**
    * Initialize the select all checkbox functionality
    * Called after recommendations are loaded to enable ticket selection
+   * Uses event delegation for cleaner event handling
    * @private
    */
   static _initializeSelectAllCheckbox() {
     const selectAllCheckbox = document.getElementById(CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX);
     const selectedTicketsContainer = document.getElementById(CONSTANTS.SELECTORS.SELECTED_TICKETS_CONTAINER);
+    const validationAccordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
     
     if (!selectAllCheckbox || !selectedTicketsContainer) return;
 
-    // Remove existing event listeners by cloning and replacing
+    // Remove any existing click listener on select all checkbox by cloning
     const newSelectAllCheckbox = selectAllCheckbox.cloneNode(true);
     selectAllCheckbox.parentNode.replaceChild(newSelectAllCheckbox, selectAllCheckbox);
 
     // Select all checkbox change handler
     newSelectAllCheckbox.addEventListener('change', function() {
       const isChecked = this.checked;
-      const ticketCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
+      // Clear indeterminate state when explicitly clicked
+      this.indeterminate = false;
       
+      const ticketCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
       ticketCheckboxes.forEach(checkbox => {
         checkbox.checked = isChecked;
       });
@@ -673,30 +701,57 @@ class TicketRenderer {
       TicketRenderer._updateSelectedCount();
     });
 
-    // Individual checkbox change handlers - only for enabled checkboxes
-    const ticketCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
-    ticketCheckboxes.forEach(checkbox => {
-      // Remove existing listeners by cloning
-      const newCheckbox = checkbox.cloneNode(true);
-      checkbox.parentNode.replaceChild(newCheckbox, checkbox);
-      
-      newCheckbox.addEventListener('change', function() {
-        TicketRenderer._updateSelectedCount();
-        
-        // Update select all checkbox state based on individual checkboxes
-        const allCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
-        const checkedCount = document.querySelectorAll('.ticket-checkbox:not([disabled]):checked').length;
-        
-        const currentSelectAll = document.getElementById(CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX);
-        if (currentSelectAll) {
-          currentSelectAll.checked = checkedCount === allCheckboxes.length && allCheckboxes.length > 0;
-          currentSelectAll.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
-        }
-      });
-    });
+    // Use event delegation for individual checkboxes
+    // Remove any existing delegated listener first
+    if (validationAccordion && validationAccordion._checkboxChangeHandler) {
+      validationAccordion.removeEventListener('change', validationAccordion._checkboxChangeHandler);
+    }
 
-    // Initial count update
+    // Create delegated event handler for individual checkboxes
+    const checkboxChangeHandler = function(event) {
+      // Only handle changes from ticket checkboxes
+      if (event.target.classList.contains('ticket-checkbox') && !event.target.disabled) {
+        TicketRenderer._updateSelectAllCheckboxState();
+        TicketRenderer._updateSelectedCount();
+      }
+    };
+
+    // Store reference to handler so we can remove it later if needed
+    if (validationAccordion) {
+      validationAccordion._checkboxChangeHandler = checkboxChangeHandler;
+      validationAccordion.addEventListener('change', checkboxChangeHandler);
+    }
+
+    // Initial state update
+    TicketRenderer._updateSelectAllCheckboxState();
     TicketRenderer._updateSelectedCount();
+  }
+
+  /**
+   * Update the select all checkbox state based on individual checkbox states
+   * @private
+   */
+  static _updateSelectAllCheckboxState() {
+    const selectAllCheckbox = document.getElementById(CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX);
+    if (!selectAllCheckbox) return;
+
+    const allCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
+    const checkedCount = document.querySelectorAll('.ticket-checkbox:not([disabled]):checked').length;
+    const totalCount = allCheckboxes.length;
+
+    if (totalCount === 0) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === 0) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === totalCount) {
+      selectAllCheckbox.checked = true;
+      selectAllCheckbox.indeterminate = false;
+    } else {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = true;
+    }
   }
 
   /**
