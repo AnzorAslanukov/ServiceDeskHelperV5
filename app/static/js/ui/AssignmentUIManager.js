@@ -11,6 +11,11 @@ class AssignmentUIManager {
     this.toggles = {};
     this.currentMode = CONSTANTS.MODES.SINGLE_TICKET;
     this.batchButtonsContainer = null;
+    
+    // Workflow state management
+    this.workflowState = 'idle'; // 'idle' | 'tickets-loaded' | 'recommendations-complete'
+    this.totalTickets = 0;
+    this.completedRecommendations = 0;
   }
 
   /**
@@ -173,6 +178,138 @@ class AssignmentUIManager {
   }
 
   /**
+   * Enable the implement assignment button
+   */
+  enableImplementButton() {
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-success');
+    }
+  }
+
+  /**
+   * Disable the implement assignment button
+   */
+  disableImplementButton() {
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.remove('btn-success');
+      btn.classList.add('btn-secondary');
+    }
+  }
+
+  /**
+   * Set the current workflow state and update button states accordingly
+   * @param {string} state - Workflow state ('idle' | 'tickets-loading' | 'tickets-loaded' | 'recommendations-loading' | 'recommendations-complete')
+   * @param {Object} [data] - Optional data for state transitions
+   */
+  setWorkflowState(state, data = {}) {
+    debugLog('[ASSIGNMENT_UI] - Setting workflow state:', state);
+    this.workflowState = state;
+
+    switch (state) {
+      case 'idle':
+        // Initial state - only Get Validation Tickets is enabled
+        this._setGetValidationTicketsButtonState(true);
+        this.disableRecommendationsButton();
+        this.disableImplementButton();
+        break;
+
+      case 'tickets-loading':
+        // Loading validation tickets - disable Get Validation Tickets
+        this._setGetValidationTicketsButtonState(false, true);
+        this.disableRecommendationsButton();
+        this.disableImplementButton();
+        break;
+
+      case 'tickets-loaded':
+        // Tickets loaded - enable Get Recommendations
+        this._setGetValidationTicketsButtonState(true);
+        this.enableRecommendationsButton();
+        this.disableImplementButton();
+        this.totalTickets = data.totalTickets || 0;
+        this.completedRecommendations = 0;
+        break;
+
+      case 'recommendations-loading':
+        // Processing recommendations - disable Get Recommendations
+        this._setGetValidationTicketsButtonState(true);
+        this._setGetRecommendationsButtonState(false, true);
+        this.disableImplementButton();
+        break;
+
+      case 'recommendations-complete':
+        // All recommendations complete - enable Implement Assignment
+        this._setGetValidationTicketsButtonState(true);
+        this._setGetRecommendationsButtonState(true);
+        this.enableImplementButton();
+        break;
+
+      default:
+        debugLog('[ASSIGNMENT_UI] - Unknown workflow state:', state);
+    }
+  }
+
+  /**
+   * Update recommendation progress and check if complete
+   * @param {number} completed - Number of completed recommendations
+   * @param {number} total - Total number of tickets
+   */
+  updateRecommendationProgress(completed, total) {
+    this.completedRecommendations = completed;
+    this.totalTickets = total;
+
+    if (completed >= total && total > 0) {
+      this.setWorkflowState('recommendations-complete');
+    }
+  }
+
+  /**
+   * Get current workflow state
+   * @returns {string} Current workflow state
+   */
+  getWorkflowState() {
+    return this.workflowState;
+  }
+
+  /**
+   * Set Get Validation Tickets button state
+   * @private
+   */
+  _setGetValidationTicketsButtonState(enabled, loading = false) {
+    const btn = document.getElementById(CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN);
+    if (!btn) return;
+
+    btn.disabled = !enabled;
+    
+    if (loading) {
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading...';
+    } else {
+      btn.innerHTML = 'Get validation tickets';
+    }
+  }
+
+  /**
+   * Set Get Recommendations button state
+   * @private
+   */
+  _setGetRecommendationsButtonState(enabled, loading = false) {
+    const btn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
+    if (!btn) return;
+
+    btn.disabled = !enabled;
+    
+    if (loading) {
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Processing...';
+    } else {
+      btn.innerHTML = 'Get ticket recommendations';
+    }
+  }
+
+  /**
    * Update progress indicator text
    * @param {string} text - Progress text to display
    */
@@ -279,10 +416,10 @@ class AssignmentUIManager {
     assignmentToggleDiv.id = 'assignment-toggle-container';
     assignmentToggleDiv.className = 'd-flex justify-content-center align-items-center mb-4';
     assignmentToggleDiv.innerHTML = `
-      <button id="${CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE}" class="btn single-ticket-btn rounded-circle" aria-label="Single Ticket Toggle">
+      <button id="${CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE}" class="btn single-ticket-btn rounded-circle" aria-label="Single Ticket Toggle" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${CONSTANTS.TOOLTIPS.SINGLE_TICKET}">
         <img id="${CONSTANTS.SELECTORS.SINGLE_TICKET_ICON}" src="/static/images/single_ticket_icon_on_light.svg" alt="Single Ticket Toggle" class="img-fluid">
       </button>
-      <button id="${CONSTANTS.SELECTORS.MULTIPLE_TICKETS_TOGGLE}" class="btn multiple-tickets-btn rounded-circle" aria-label="Multiple Tickets Toggle" style="margin-left: 0.5rem;">
+      <button id="${CONSTANTS.SELECTORS.MULTIPLE_TICKETS_TOGGLE}" class="btn multiple-tickets-btn rounded-circle" aria-label="Multiple Tickets Toggle" style="margin-left: 0.5rem;" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${CONSTANTS.TOOLTIPS.MULTIPLE_TICKETS}">
         <img id="${CONSTANTS.SELECTORS.MULTIPLE_TICKETS_ICON}" src="/static/images/multiple_tickets_icon_off_light.svg" alt="Multiple Tickets Toggle" class="img-fluid">
       </button>
     `;
@@ -299,6 +436,42 @@ class AssignmentUIManager {
           targetElement.appendChild(assignmentToggleDiv);
         }
       }
+    }
+
+    // Initialize Bootstrap tooltips for the newly created buttons
+    initializeTooltips('[data-bs-toggle="tooltip"]');
+
+    // Add event listeners to hide tooltips on click and mouse leave
+    this._attachTooltipHideListeners();
+  }
+
+  /**
+   * Attach event listeners to hide tooltips when buttons are clicked or mouse leaves
+   * @private
+   */
+  _attachTooltipHideListeners() {
+    const singleBtn = document.getElementById(CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE);
+    const multipleBtn = document.getElementById(CONSTANTS.SELECTORS.MULTIPLE_TICKETS_TOGGLE);
+
+    const hideTooltip = (button) => {
+      if (button) {
+        const tooltip = bootstrap.Tooltip.getInstance(button);
+        if (tooltip) {
+          tooltip.hide();
+        }
+      }
+    };
+
+    if (singleBtn) {
+      singleBtn.addEventListener('click', () => hideTooltip(singleBtn));
+      singleBtn.addEventListener('mouseleave', () => hideTooltip(singleBtn));
+      singleBtn.addEventListener('blur', () => hideTooltip(singleBtn));
+    }
+
+    if (multipleBtn) {
+      multipleBtn.addEventListener('click', () => hideTooltip(multipleBtn));
+      multipleBtn.addEventListener('mouseleave', () => hideTooltip(multipleBtn));
+      multipleBtn.addEventListener('blur', () => hideTooltip(multipleBtn));
     }
   }
 
@@ -344,12 +517,15 @@ class AssignmentUIManager {
       <button id="${CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN}" class="btn btn-secondary btn-lg" type="button" disabled>
         Get ticket recommendations
       </button>
-      <button id="${CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN}" class="btn btn-success btn-lg" type="button">
+      <button id="${CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN}" class="btn btn-secondary btn-lg" type="button" disabled>
         Implement ticket assignment
       </button>
     `;
 
     toggleButtons.insertAdjacentElement('afterend', this.batchButtonsContainer);
+    
+    // Initialize workflow state after creating buttons
+    this.setWorkflowState('idle');
   }
 
   /**

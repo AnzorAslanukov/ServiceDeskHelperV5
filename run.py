@@ -939,6 +939,133 @@ def api_get_validation_tickets_stream():
         }
     )
 
+@app.route('/api/implement-assignments', methods=['POST'])
+def api_implement_assignments():
+    """
+    Implement ticket assignments in Athena based on AI recommendations.
+    
+    Request body:
+    {
+        "assignments": [
+            {
+                "ticket_id": "IR12345",
+                "support_group": "EUS - Some Location",
+                "priority": 2
+            }
+        ]
+    }
+    
+    Returns:
+    {
+        "results": [
+            {
+                "ticket_id": "IR12345",
+                "success": true/false,
+                "support_group": "assigned group",
+                "message": "status message"
+            }
+        ],
+        "errors": []  # Any non-fatal errors/warnings
+    }
+    """
+    output = Output()
+    
+    try:
+        data = request.get_json()
+        
+        if not data or 'assignments' not in data:
+            return jsonify({'error': 'Missing assignments data'}), 400
+        
+        assignments = data['assignments']
+        
+        if not isinstance(assignments, list) or len(assignments) == 0:
+            return jsonify({'error': 'Assignments must be a non-empty list'}), 400
+        
+        if DEBUG:
+            output.add_line(f"Starting batch assignment for {len(assignments)} tickets")
+        
+        # Initialize Athena client
+        athena = Athena()
+        
+        results = []
+        errors = []
+        
+        # Process each assignment
+        for assignment in assignments:
+            ticket_id = assignment.get('ticket_id')
+            support_group = assignment.get('support_group')
+            priority = assignment.get('priority')
+            
+            if not ticket_id:
+                results.append({
+                    'ticket_id': ticket_id or 'unknown',
+                    'success': False,
+                    'support_group': support_group,
+                    'message': 'Missing ticket_id'
+                })
+                continue
+            
+            if not support_group:
+                results.append({
+                    'ticket_id': ticket_id,
+                    'success': False,
+                    'support_group': None,
+                    'message': 'Missing support_group'
+                })
+                continue
+            
+            try:
+                if DEBUG:
+                    output.add_line(f"Assigning ticket {ticket_id} to support group: {support_group}")
+                
+                # Call modify_ticket to update the support group
+                # Note: username is set to None to leave assignment unassigned (or you could set a specific user)
+                athena.modify_ticket(
+                    ticket_id=ticket_id,
+                    username=None,  # Don't assign to a specific user, just update support group
+                    priority=priority,
+                    support_group=support_group
+                )
+                
+                results.append({
+                    'ticket_id': ticket_id,
+                    'success': True,
+                    'support_group': support_group,
+                    'message': f'Successfully assigned to {support_group}'
+                })
+                
+                if DEBUG:
+                    output.add_line(f"Successfully assigned ticket {ticket_id}")
+                
+            except Exception as e:
+                error_msg = str(e)
+                if DEBUG:
+                    output.add_line(f"Error assigning ticket {ticket_id}: {error_msg}")
+                
+                results.append({
+                    'ticket_id': ticket_id,
+                    'success': False,
+                    'support_group': support_group,
+                    'message': f'Error: {error_msg}'
+                })
+                errors.append(f"Ticket {ticket_id}: {error_msg}")
+        
+        if DEBUG:
+            success_count = sum(1 for r in results if r['success'])
+            output.add_line(f"Batch assignment complete: {success_count}/{len(results)} successful")
+        
+        return jsonify({
+            'results': results,
+            'errors': errors
+        })
+        
+    except Exception as e:
+        error_msg = f"Error in api_implement_assignments: {str(e)}"
+        if DEBUG:
+            output.add_line(error_msg)
+        return jsonify({'error': error_msg}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
     # get_ticket_advice("IR10226122")

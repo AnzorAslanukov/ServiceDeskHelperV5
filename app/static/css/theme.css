@@ -353,3 +353,34 @@ body {
   height: auto;
   object-fit: contain;
 }
+
+/* Validation Ticket Checkbox Visibility */
+.ticket-checkbox-hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  width: 1em;
+  height: 1em;
+  margin-right: 0;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.ticket-checkbox-visible {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.5rem;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+/* Clipboard button styling for validation tickets */
+.accordion-header .clipboard-btn {
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.accordion-header .clipboard-btn:hover {
+  z-index: 11;
+}

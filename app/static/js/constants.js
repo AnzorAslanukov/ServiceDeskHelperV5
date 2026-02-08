@@ -48,6 +48,14 @@ const CONSTANTS = {
     VALIDATION_TOGGLE_ALL_BTN: 'validation-toggle-all-btn',
     VALIDATION_ACCORDION: 'validationTicketsAccordion',
 
+    // Checkbox selection
+    SELECT_ALL_TICKETS_CHECKBOX: 'select-all-tickets-checkbox',
+    TICKET_CHECKBOX_PREFIX: 'ticket-checkbox-',
+    SELECTED_TICKETS_CONTAINER: 'selected-tickets-container',
+    SELECTED_TICKETS_COUNT: 'selected-tickets-count',
+    ASSIGNMENT_PROGRESS_CONTAINER: 'assignment-progress-container',
+    ASSIGNMENT_PROGRESS_TEXT: 'assignment-progress-text',
+
     // CSS classes
     SPINNER_BORDER: 'spinner-border',
     ACCORDION_COLLAPSE: '.accordion-collapse',

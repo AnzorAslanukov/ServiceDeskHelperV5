@@ -57,7 +57,7 @@ class TicketRenderer {
   }
 
   /**
-   * Render validation tickets with expand/collapse controls
+   * Render validation tickets with expand/collapse controls and checkboxes
    * @param {Object} data - Validation tickets data including tickets array and count
    */
   static renderValidationTickets(data) {
@@ -66,11 +66,16 @@ class TicketRenderer {
 
     const count = data.count || 0;
 
-    // Display section header with expand/collapse toggle
+    // Display section header with expand/collapse toggle and select all checkbox
     let html = `
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Validation Tickets (${count})</h4>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center">
+          <div id="${CONSTANTS.SELECTORS.SELECTED_TICKETS_CONTAINER}" class="d-none align-items-center me-2">
+            <input type="checkbox" id="${CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX}" class="form-check-input me-2">
+            <label for="${CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX}" class="form-check-label me-2">Select All</label>
+            <span id="${CONSTANTS.SELECTORS.SELECTED_TICKETS_COUNT}" class="badge bg-primary">0 selected</span>
+          </div>
           <button id="${CONSTANTS.SELECTORS.VALIDATION_TOGGLE_ALL_BTN}" class="btn btn-outline-secondary" type="button">
             <i class="bi bi-chevron-down me-1"></i>Expand All
           </button>
@@ -100,6 +105,9 @@ class TicketRenderer {
 
     // Initialize expand/collapse all toggle button
     this._initializeExpandCollapseButton();
+
+    // Initialize select all checkbox functionality
+    this._initializeSelectAllCheckbox();
 
     initializeTooltips();
     debugLog('[RENDERER] - Validation tickets display completed');
@@ -498,7 +506,7 @@ class TicketRenderer {
   }
 
   /**
-   * Render a validation ticket accordion item with recommendations container
+   * Render a validation ticket accordion item with recommendations container, checkbox, and clipboard button
    * @param {Object} ticket - Ticket data
    * @param {number} index - Ticket index
    * @returns {string} HTML string
@@ -506,15 +514,23 @@ class TicketRenderer {
    */
   static _renderValidationAccordionItem(ticket, index) {
     const createdDate = formatDate(ticket.created_at);
+    const checkboxId = `${CONSTANTS.SELECTORS.TICKET_CHECKBOX_PREFIX}${index}`;
 
     return `
-      <div class="accordion-item">
-        ${TicketAccordionHeader.generate({
-          id: ticket.id,
-          title: `${ticket.id} - ${ticket.title || 'N/A'}`,
-          accordionTarget: `#validationCollapse${index}`,
-          ariaControls: `validationCollapse${index}`
-        })}
+      <div class="accordion-item" data-ticket-id="${ticket.id}" data-ticket-index="${index}">
+        <div class="accordion-header d-flex align-items-center">
+          <input type="checkbox" id="${checkboxId}" class="form-check-input ticket-checkbox ms-3 me-2 ticket-checkbox-hidden" 
+                 data-ticket-id="${ticket.id}" data-ticket-index="${index}" style="cursor: pointer; z-index: 10;" disabled>
+          <button class="btn btn-sm btn-outline-primary me-2 clipboard-btn" onclick="handleCopy('${ticket.id}', this)" 
+                  data-bs-toggle="tooltip" data-bs-placement="top" title="Copy ticket number">
+            <i class="bi bi-clipboard"></i>
+          </button>
+          <button class="accordion-button collapsed flex-grow-1" type="button" 
+                  data-bs-toggle="collapse" data-bs-target="#validationCollapse${index}" 
+                  aria-expanded="false" aria-controls="validationCollapse${index}">
+            <span class="ticket-title">${ticket.id} - ${ticket.title || 'N/A'}</span>
+          </button>
+        </div>
         <div id="validationCollapse${index}" class="accordion-collapse collapse">
           <div class="accordion-body">
             <div class="row">
@@ -533,7 +549,8 @@ class TicketRenderer {
                 <p><strong>Resolution Notes:</strong> ${ticket.resolution_notes || 'N/A'}</p>
               </div>
             </div>
-            <div id="recommendations-${index}" class="recommendations-container mt-3" style="display: none;"></div>
+            <div id="recommendations-${index}" class="recommendations-container mt-3" style="display: none;"
+                 data-ticket-id="${ticket.id}" data-ticket-index="${index}"></div>
           </div>
         </div>
       </div>
@@ -627,5 +644,304 @@ class TicketRenderer {
         isExpanded = true;
       }
     });
+  }
+
+  /**
+   * Initialize the select all checkbox functionality
+   * Called after recommendations are loaded to enable ticket selection
+   * @private
+   */
+  static _initializeSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById(CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX);
+    const selectedTicketsContainer = document.getElementById(CONSTANTS.SELECTORS.SELECTED_TICKETS_CONTAINER);
+    
+    if (!selectAllCheckbox || !selectedTicketsContainer) return;
+
+    // Remove existing event listeners by cloning and replacing
+    const newSelectAllCheckbox = selectAllCheckbox.cloneNode(true);
+    selectAllCheckbox.parentNode.replaceChild(newSelectAllCheckbox, selectAllCheckbox);
+
+    // Select all checkbox change handler
+    newSelectAllCheckbox.addEventListener('change', function() {
+      const isChecked = this.checked;
+      const ticketCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
+      
+      ticketCheckboxes.forEach(checkbox => {
+        checkbox.checked = isChecked;
+      });
+      
+      TicketRenderer._updateSelectedCount();
+    });
+
+    // Individual checkbox change handlers - only for enabled checkboxes
+    const ticketCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
+    ticketCheckboxes.forEach(checkbox => {
+      // Remove existing listeners by cloning
+      const newCheckbox = checkbox.cloneNode(true);
+      checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+      
+      newCheckbox.addEventListener('change', function() {
+        TicketRenderer._updateSelectedCount();
+        
+        // Update select all checkbox state based on individual checkboxes
+        const allCheckboxes = document.querySelectorAll('.ticket-checkbox:not([disabled])');
+        const checkedCount = document.querySelectorAll('.ticket-checkbox:not([disabled]):checked').length;
+        
+        const currentSelectAll = document.getElementById(CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX);
+        if (currentSelectAll) {
+          currentSelectAll.checked = checkedCount === allCheckboxes.length && allCheckboxes.length > 0;
+          currentSelectAll.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+        }
+      });
+    });
+
+    // Initial count update
+    TicketRenderer._updateSelectedCount();
+  }
+
+  /**
+   * Update the selected tickets count display
+   * @private
+   */
+  static _updateSelectedCount() {
+    const selectedCountEl = document.getElementById(CONSTANTS.SELECTORS.SELECTED_TICKETS_COUNT);
+    if (!selectedCountEl) return;
+
+    const checkedCount = document.querySelectorAll('.ticket-checkbox:checked').length;
+    const totalCount = document.querySelectorAll('.ticket-checkbox').length;
+    
+    selectedCountEl.textContent = `${checkedCount}/${totalCount} selected`;
+    
+    // Dispatch event to notify other components of selection change
+    document.dispatchEvent(new CustomEvent('ticketSelectionChanged', {
+      detail: { selectedCount: checkedCount, totalCount: totalCount }
+    }));
+  }
+
+  /**
+   * Get all selected tickets with their data
+   * Returns array of selected ticket objects with id, index, and recommendation data
+   * @returns {Array} Array of selected ticket objects
+   */
+  static getSelectedTickets() {
+    const selectedTickets = [];
+    const checkedCheckboxes = document.querySelectorAll('.ticket-checkbox:checked');
+
+    checkedCheckboxes.forEach(checkbox => {
+      const ticketId = checkbox.getAttribute('data-ticket-id');
+      const ticketIndex = parseInt(checkbox.getAttribute('data-ticket-index'));
+      
+      // Get recommendation data from the recommendations container
+      const recommendationsContainer = document.getElementById(`recommendations-${ticketIndex}`);
+      let recommendationData = null;
+      
+      if (recommendationsContainer) {
+        // Extract recommendation data from the rendered content
+        const supportGroupEl = recommendationsContainer.querySelector('.text-primary');
+        const priorityEl = recommendationsContainer.querySelector('.text-warning');
+        
+        if (supportGroupEl && priorityEl) {
+          recommendationData = {
+            recommended_support_group: supportGroupEl.textContent.trim(),
+            recommended_priority_level: priorityEl.textContent.trim()
+          };
+        }
+      }
+
+      selectedTickets.push({
+        id: ticketId,
+        index: ticketIndex,
+        checkbox: checkbox,
+        recommendation: recommendationData
+      });
+    });
+
+    debugLog('[RENDERER] - Selected tickets:', selectedTickets.length);
+    return selectedTickets;
+  }
+
+  /**
+   * Store recommendation data for a specific ticket
+   * This allows retrieval when implementing assignments
+   * @param {number} ticketIndex - Index of the ticket
+   * @param {Object} recommendationData - The AI recommendation data
+   */
+  static storeRecommendationData(ticketIndex, recommendationData) {
+    const recommendationsContainer = document.getElementById(`recommendations-${ticketIndex}`);
+    if (recommendationsContainer) {
+      recommendationsContainer.dataset.recommendationData = JSON.stringify(recommendationData);
+    }
+  }
+
+  /**
+   * Get recommendation data for a specific ticket
+   * @param {number} ticketIndex - Index of the ticket
+   * @returns {Object|null} The recommendation data or null if not found
+   */
+  static getRecommendationData(ticketIndex) {
+    const recommendationsContainer = document.getElementById(`recommendations-${ticketIndex}`);
+    if (recommendationsContainer && recommendationsContainer.dataset.recommendationData) {
+      try {
+        return JSON.parse(recommendationsContainer.dataset.recommendationData);
+      } catch (e) {
+        debugLog('[RENDERER] - Error parsing recommendation data:', e);
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Show all ticket checkboxes and enable them
+   * Called after the first AI recommendation is received
+   */
+  static showTicketCheckboxes() {
+    debugLog('[RENDERER] - Showing and enabling ticket checkboxes');
+    
+    // Show individual ticket checkboxes
+    const checkboxes = document.querySelectorAll('.ticket-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.classList.remove('ticket-checkbox-hidden');
+      checkbox.classList.add('ticket-checkbox-visible');
+      checkbox.disabled = false;
+    });
+    
+    // Show the select all container
+    const selectAllContainer = document.getElementById(CONSTANTS.SELECTORS.SELECTED_TICKETS_CONTAINER);
+    if (selectAllContainer) {
+      selectAllContainer.classList.remove('d-none');
+      selectAllContainer.classList.add('d-flex');
+    }
+    
+    // Re-initialize select all checkbox functionality
+    this._initializeSelectAllCheckbox();
+    
+    debugLog('[RENDERER] - Ticket checkboxes are now visible and enabled');
+  }
+
+  /**
+   * Hide all ticket checkboxes and disable them
+   * Used when resetting the workflow
+   */
+  static hideTicketCheckboxes() {
+    debugLog('[RENDERER] - Hiding and disabling ticket checkboxes');
+    
+    // Hide individual ticket checkboxes
+    const checkboxes = document.querySelectorAll('.ticket-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.classList.remove('ticket-checkbox-visible');
+      checkbox.classList.add('ticket-checkbox-hidden');
+      checkbox.disabled = true;
+      checkbox.checked = false;
+    });
+    
+    // Hide the select all container
+    const selectAllContainer = document.getElementById(CONSTANTS.SELECTORS.SELECTED_TICKETS_CONTAINER);
+    if (selectAllContainer) {
+      selectAllContainer.classList.remove('d-flex');
+      selectAllContainer.classList.add('d-none');
+    }
+    
+    debugLog('[RENDERER] - Ticket checkboxes are now hidden and disabled');
+  }
+
+  /**
+   * Render assignment implementation results
+   * @param {Object} result - Assignment results from backend
+   */
+  static renderAssignmentResults(result) {
+    debugLog('[RENDERER] - Displaying assignment results');
+    const container = ensureContentArea();
+
+    // Create results HTML
+    let html = '<div class="mt-4"><h4>Assignment Implementation Results</h4></div>';
+
+    // Summary card
+    const successCount = result.results ? result.results.filter(r => r.success).length : 0;
+    const failedCount = result.results ? result.results.filter(r => !r.success).length : 0;
+    
+    html += `
+      <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0">Implementation Summary</h5>
+        </div>
+        <div class="card-body">
+          <div class="row text-center">
+            <div class="col-md-4">
+              <h3 class="text-success">${successCount}</h3>
+              <p class="text-muted">Successful</p>
+            </div>
+            <div class="col-md-4">
+              <h3 class="text-danger">${failedCount}</h3>
+              <p class="text-muted">Failed</p>
+            </div>
+            <div class="col-md-4">
+              <h3>${result.results ? result.results.length : 0}</h3>
+              <p class="text-muted">Total Processed</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Detailed results table
+    if (result.results && result.results.length > 0) {
+      html += `
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-0">Detailed Results</h5>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-striped mb-0">
+                <thead>
+                  <tr>
+                    <th>Ticket ID</th>
+                    <th>Status</th>
+                    <th>Support Group</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+      `;
+
+      result.results.forEach(item => {
+        const statusBadge = item.success 
+          ? '<span class="badge bg-success">Success</span>' 
+          : '<span class="badge bg-danger">Failed</span>';
+        
+        html += `
+          <tr>
+            <td><strong>${item.ticket_id}</strong></td>
+            <td>${statusBadge}</td>
+            <td>${item.support_group || 'N/A'}</td>
+            <td>${item.message || 'N/A'}</td>
+          </tr>
+        `;
+      });
+
+      html += `
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // If there are errors, show them
+    if (result.errors && result.errors.length > 0) {
+      html += `
+        <div class="alert alert-warning mt-3">
+          <h6>Warnings:</h6>
+          <ul class="mb-0">
+            ${result.errors.map(err => `<li>${err}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    container.innerHTML += html;
+    debugLog('[RENDERER] - Assignment results display completed');
   }
 }

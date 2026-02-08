@@ -166,7 +166,42 @@ class SearchUIManager {
 
     // Initialize Bootstrap tooltips for the newly created buttons
     initializeTooltips('[data-bs-toggle="tooltip"]');
+
+    // Add event listeners to hide tooltips on click and mouse leave
+    this._attachTooltipHideListeners();
+
     debugLog('[SEARCH_UI] - Toggle buttons creation completed with tooltips');
+  }
+
+  /**
+   * Attach event listeners to hide tooltips when buttons are clicked or mouse leaves
+   * @private
+   */
+  _attachTooltipHideListeners() {
+    const buttonIds = [
+      CONSTANTS.SELECTORS.PHONE_TOGGLE,
+      CONSTANTS.SELECTORS.MATCH_TOGGLE,
+      CONSTANTS.SELECTORS.SEMANTIC_TOGGLE,
+      CONSTANTS.SELECTORS.TICKET_TOGGLE
+    ];
+
+    const hideTooltip = (button) => {
+      if (button) {
+        const tooltip = bootstrap.Tooltip.getInstance(button);
+        if (tooltip) {
+          tooltip.hide();
+        }
+      }
+    };
+
+    buttonIds.forEach(id => {
+      const button = document.getElementById(id);
+      if (button) {
+        button.addEventListener('click', () => hideTooltip(button));
+        button.addEventListener('mouseleave', () => hideTooltip(button));
+        button.addEventListener('blur', () => hideTooltip(button));
+      }
+    });
   }
 
   /**

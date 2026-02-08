@@ -346,9 +346,11 @@ async function handleGetValidationTickets() {
 function handleGetValidationTicketsStream() {
   debugLog('[MAIN] - Get validation tickets (streaming) clicked');
 
+  // Set workflow state to loading
+  assignmentUIManager.setWorkflowState('tickets-loading');
+
   // Initialize the streaming container
   TicketRenderer.renderValidationTicketsStreamingInit();
-  assignmentUIManager.disableRecommendationsButton();
 
   // Create EventSource for SSE
   const eventSource = new EventSource(CONSTANTS.API.GET_VALIDATION_TICKETS_STREAM);
@@ -364,6 +366,7 @@ function handleGetValidationTicketsStream() {
     
     if (totalCount === 0) {
       TicketRenderer.renderError('No validation tickets found.');
+      assignmentUIManager.setWorkflowState('idle');
       eventSource.close();
     } else {
       // Update header with expected count
@@ -394,6 +397,7 @@ function handleGetValidationTicketsStream() {
       // Fatal error
       hasError = true;
       TicketRenderer.renderError('Error loading validation tickets: ' + errorData.message);
+      assignmentUIManager.setWorkflowState('idle');
       eventSource.close();
     }
   });
@@ -405,8 +409,8 @@ function handleGetValidationTicketsStream() {
     // Update final progress
     TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
     
-    // Enable the recommendations button
-    assignmentUIManager.enableRecommendationsButton();
+    // Set workflow state to tickets-loaded
+    assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
     
     eventSource.close();
   });
@@ -416,6 +420,7 @@ function handleGetValidationTicketsStream() {
     debugLog('[MAIN] - EventSource connection error:', error);
     if (!hasError && loadedCount === 0) {
       TicketRenderer.renderError('Connection error while loading validation tickets. Please try again.');
+      assignmentUIManager.setWorkflowState('idle');
     }
     eventSource.close();
   };
@@ -444,16 +449,18 @@ async function handleGetRecommendations() {
 
   debugLog('[MAIN] - Found', ticketItems.length, 'tickets to process');
 
-  // Disable the recommendations button during processing
-  const recommendationsBtn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
-  if (recommendationsBtn) {
-    recommendationsBtn.disabled = true;
-  }
+  // Set workflow state to recommendations-loading
+  assignmentUIManager.setWorkflowState('recommendations-loading');
+  
+  // Track if checkboxes have been shown (show after first recommendation)
+  let checkboxesShown = false;
 
   // Show initial progress
   assignmentUIManager.showRecommendationProgress(1, ticketItems.length, ticketItems[0].id);
 
   // Process tickets in batches
+  let completedCount = 0;
+  
   await batchProcessor.processTickets(ticketItems, {
     onTicketStart: (item, current, total) => {
       // Update progress when starting a new ticket
@@ -464,21 +471,42 @@ async function handleGetRecommendations() {
       debugLog('[MAIN] - Progress:', completed, 'of', total);
     },
     onTicketComplete: (item, data) => {
+      completedCount++;
+      
       // Render the recommendation immediately when received
       TicketRenderer.renderRecommendations(data, true, item.index);
-      debugLog('[MAIN] - Rendered recommendation for ticket', item.id);
+      
+      // Store the recommendation data for later use when implementing assignments
+      TicketRenderer.storeRecommendationData(item.index, data);
+      
+      // Show checkboxes after the first recommendation is received
+      if (!checkboxesShown) {
+        TicketRenderer.showTicketCheckboxes();
+        checkboxesShown = true;
+      }
+      
+      // Update workflow progress
+      assignmentUIManager.updateRecommendationProgress(completedCount, ticketItems.length);
+      
+      debugLog('[MAIN] - Rendered and stored recommendation for ticket', item.id);
     },
     onError: (item, error) => {
+      completedCount++;
       const errorData = { error: error.message || 'Failed to get recommendations' };
       TicketRenderer.renderRecommendations(errorData, true, item.index);
+      
+      // Still update progress even on error
+      assignmentUIManager.updateRecommendationProgress(completedCount, ticketItems.length);
+      
+      // Show checkboxes even if there was an error (so user can select other tickets)
+      if (!checkboxesShown) {
+        TicketRenderer.showTicketCheckboxes();
+        checkboxesShown = true;
+      }
     },
     onComplete: () => {
-      // Show completion message and re-enable button
+      // Show completion message
       assignmentUIManager.showRecommendationComplete(ticketItems.length);
-      
-      if (recommendationsBtn) {
-        recommendationsBtn.disabled = false;
-      }
       
       debugLog('[MAIN] - All recommendations complete');
     }
@@ -487,10 +515,74 @@ async function handleGetRecommendations() {
 
 /**
  * Handle implement ticket assignment button click
+ * Implements assignments for selected tickets using AI recommendations
  */
-function handleImplementAssignment() {
+async function handleImplementAssignment() {
   debugLog('[MAIN] - Implement ticket assignment clicked');
-  alert('Implement ticket assignment functionality will be implemented in the backend.');
+
+  // Get selected tickets from the UI
+  const selectedTickets = TicketRenderer.getSelectedTickets();
+  
+  if (selectedTickets.length === 0) {
+    alert('Please select at least one ticket to assign.');
+    return;
+  }
+
+  // Filter tickets that have recommendation data
+  const ticketsWithRecommendations = selectedTickets.filter(ticket => 
+    ticket.recommendation && ticket.recommendation.recommended_support_group && 
+    ticket.recommendation.recommended_support_group !== 'N/A'
+  );
+
+  if (ticketsWithRecommendations.length === 0) {
+    alert('No selected tickets have AI recommendations. Please get recommendations first.');
+    return;
+  }
+
+  // Prepare the assignment data
+  const assignments = ticketsWithRecommendations.map(ticket => ({
+    ticket_id: ticket.id,
+    support_group: ticket.recommendation.recommended_support_group,
+    priority: ticket.recommendation.recommended_priority_level !== 'N/A' 
+      ? parseInt(ticket.recommendation.recommended_priority_level) 
+      : null
+  }));
+
+  debugLog('[MAIN] - Implementing assignments for', assignments.length, 'tickets');
+
+  // Disable the implement button during processing
+  const implementBtn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+  if (implementBtn) {
+    implementBtn.disabled = true;
+    implementBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Assigning...';
+  }
+
+  try {
+    const response = await fetch('/api/implement-assignments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignments: assignments })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    debugLog('[MAIN] - Assignment implementation result:', result);
+
+    // Display results
+    TicketRenderer.renderAssignmentResults(result);
+
+  } catch (error) {
+    debugLog('[MAIN] - Error implementing assignments:', error);
+    TicketRenderer.renderError('Error implementing assignments: ' + error.message);
+  } finally {
+    if (implementBtn) {
+      implementBtn.disabled = false;
+      implementBtn.innerHTML = 'Implement ticket assignment';
+    }
+  }
 }
 
 console.log('Main script loaded and initialized.');
