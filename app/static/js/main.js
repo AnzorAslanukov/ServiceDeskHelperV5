@@ -216,29 +216,33 @@ async function handleTicketSearch(searchValue, searchButton) {
 }
 
 /**
- * Handle single ticket assignment advice request
+ * Handle single ticket assignment advice request using SSE for progress updates
  */
-async function handleSingleTicketAssignment(ticketId, searchButton) {
-  debugLog('[MAIN] - Handling single ticket assignment:', ticketId);
+function handleSingleTicketAssignment(ticketId, searchButton) {
+  debugLog('[MAIN] - Handling single ticket assignment with SSE:', ticketId);
 
-  // Disable button and show loading
+  // Disable button and show initial loading with progress
   searchButton.disabled = true;
   searchButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
-  TicketRenderer.renderLoading();
+  TicketRenderer.renderLoadingWithProgress(1, 'Fetching ticket data...');
 
-  try {
-    const response = await fetch(CONSTANTS.API.GET_TICKET_ADVICE, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticketId: ticketId })
-    });
+  // Create EventSource for SSE
+  const eventSource = new EventSource(
+    `${CONSTANTS.API.GET_TICKET_ADVICE_STREAM}?ticketId=${encodeURIComponent(ticketId)}`
+  );
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+  let hasReceivedData = false;
 
-    const data = await response.json();
-    debugLog('[MAIN] - Assignment API response:', data);
+  eventSource.addEventListener('progress', (event) => {
+    const data = JSON.parse(event.data);
+    debugLog('[MAIN] - Progress update:', data);
+    TicketRenderer.updateLoadingProgress(data.step, data.message);
+  });
+
+  eventSource.addEventListener('complete', (event) => {
+    const data = JSON.parse(event.data);
+    debugLog('[MAIN] - Assignment complete:', data);
+    hasReceivedData = true;
 
     // Display AI recommendations first
     if (data.recommended_support_group || data.recommended_priority_level || data.detailed_explanation) {
@@ -262,13 +266,43 @@ async function handleSingleTicketAssignment(ticketId, searchButton) {
       TicketRenderer.renderOnenoteDocuments(data.onenote_documentation);
     }
 
-  } catch (error) {
-    debugLog('[MAIN] - Assignment error:', error);
-    TicketRenderer.renderError('Error getting advice: ' + error.message);
-  } finally {
+    // Clean up
+    eventSource.close();
     searchButton.disabled = false;
     searchButton.innerHTML = '<i class="bi bi-search"></i>';
-  }
+  });
+
+  eventSource.addEventListener('error', (event) => {
+    let errorMessage = 'Error getting advice';
+    
+    try {
+      const data = JSON.parse(event.data);
+      errorMessage = data.message || errorMessage;
+    } catch (e) {
+      // If we can't parse the error data, use default message
+      if (!hasReceivedData) {
+        errorMessage = 'Connection error while getting ticket advice. Please try again.';
+      }
+    }
+
+    debugLog('[MAIN] - SSE error:', errorMessage);
+    TicketRenderer.renderError('Error getting advice: ' + errorMessage);
+    
+    eventSource.close();
+    searchButton.disabled = false;
+    searchButton.innerHTML = '<i class="bi bi-search"></i>';
+  });
+
+  // Handle connection errors (when event.data is undefined)
+  eventSource.onerror = (error) => {
+    if (!hasReceivedData) {
+      debugLog('[MAIN] - EventSource connection error:', error);
+      TicketRenderer.renderError('Connection error while getting ticket advice. Please try again.');
+      searchButton.disabled = false;
+      searchButton.innerHTML = '<i class="bi bi-search"></i>';
+    }
+    eventSource.close();
+  };
 }
 
 /**

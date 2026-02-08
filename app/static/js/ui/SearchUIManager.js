@@ -87,8 +87,12 @@ class SearchUIManager {
       return;
     }
 
+    // First, remove any existing search toggle buttons to prevent duplicates
+    this._removeExistingToggleButtons();
+
     // Create the flex container div
     const toggleDiv = document.createElement('div');
+    toggleDiv.id = 'search-toggle-container';
     toggleDiv.className = 'd-flex justify-content-center align-items-center';
 
     // Define button configurations
@@ -97,6 +101,7 @@ class SearchUIManager {
         id: CONSTANTS.SELECTORS.PHONE_TOGGLE,
         className: 'btn phone-btn rounded-circle',
         ariaLabel: 'Phone Toggle',
+        tooltip: CONSTANTS.TOOLTIPS.PHONE,
         imgId: CONSTANTS.SELECTORS.PHONE_ICON,
         imgSrc: '/static/images/phone_icon_on_light.svg',
         imgAlt: 'Phone Toggle',
@@ -106,6 +111,7 @@ class SearchUIManager {
         id: CONSTANTS.SELECTORS.MATCH_TOGGLE,
         className: 'btn match-btn rounded-circle',
         ariaLabel: 'Match Toggle',
+        tooltip: CONSTANTS.TOOLTIPS.MATCH,
         imgId: CONSTANTS.SELECTORS.MATCH_ICON,
         imgSrc: '/static/images/sentence_match_icon_off_light.svg',
         imgAlt: 'Match Toggle',
@@ -115,6 +121,7 @@ class SearchUIManager {
         id: CONSTANTS.SELECTORS.SEMANTIC_TOGGLE,
         className: 'btn semantic-btn rounded-circle',
         ariaLabel: 'Semantic Toggle',
+        tooltip: CONSTANTS.TOOLTIPS.SEMANTIC,
         imgId: CONSTANTS.SELECTORS.SEMANTIC_ICON,
         imgSrc: '/static/images/abc_icon_off_light.svg',
         imgAlt: 'Semantic Toggle',
@@ -124,6 +131,7 @@ class SearchUIManager {
         id: CONSTANTS.SELECTORS.TICKET_TOGGLE,
         className: 'btn ticket-btn rounded-circle',
         ariaLabel: 'Ticket Toggle',
+        tooltip: CONSTANTS.TOOLTIPS.TICKET,
         imgId: CONSTANTS.SELECTORS.TICKET_ICON,
         imgSrc: '/static/images/ticket_icon_off_light.svg',
         imgAlt: 'Ticket Toggle',
@@ -138,6 +146,9 @@ class SearchUIManager {
       button.id = config.id;
       button.className = config.className;
       button.setAttribute('aria-label', config.ariaLabel);
+      button.setAttribute('data-bs-toggle', 'tooltip');
+      button.setAttribute('data-bs-placement', 'top');
+      button.setAttribute('data-bs-title', config.tooltip);
       button.style.cssText = config.marginLeft;
 
       const img = document.createElement('img');
@@ -152,7 +163,10 @@ class SearchUIManager {
 
     // Add to container
     container.appendChild(toggleDiv);
-    debugLog('[SEARCH_UI] - Toggle buttons creation completed');
+
+    // Initialize Bootstrap tooltips for the newly created buttons
+    initializeTooltips('[data-bs-toggle="tooltip"]');
+    debugLog('[SEARCH_UI] - Toggle buttons creation completed with tooltips');
   }
 
   /**
@@ -223,6 +237,14 @@ class SearchUIManager {
     if (searchDiv) {
       searchDiv.classList.remove('d-none');
       searchDiv.classList.add('d-flex');
+      // Re-initialize tooltips in case they were lost
+      initializeTooltips('[data-bs-toggle="tooltip"]');
+    } else {
+      // Buttons don't exist, recreate them
+      debugLog('[SEARCH_UI] - Search toggle buttons not found, recreating');
+      this.createToggleButtons();
+      // Re-attach event listeners after recreation
+      this._attachEventListeners();
     }
   }
 
@@ -255,6 +277,28 @@ class SearchUIManager {
     if (this.toggles.semantic?.isOn) return CONSTANTS.MODES.SEMANTIC;
     if (this.toggles.ticket?.isOn) return CONSTANTS.MODES.TICKET;
     return CONSTANTS.MODES.PHONE; // Default
+  }
+
+  /**
+   * Remove existing search toggle buttons to prevent duplicates
+   * @private
+   */
+  _removeExistingToggleButtons() {
+    // Try to find by our custom ID first
+    const containerById = document.getElementById('search-toggle-container');
+    if (containerById) {
+      containerById.remove();
+      return;
+    }
+
+    // Fallback: find by looking for the phone toggle button
+    const phoneToggle = document.getElementById(CONSTANTS.SELECTORS.PHONE_TOGGLE);
+    if (phoneToggle) {
+      const toggleDiv = phoneToggle.closest('.d-flex');
+      if (toggleDiv) {
+        toggleDiv.remove();
+      }
+    }
   }
 
   /**

@@ -620,6 +620,152 @@ def api_get_ticket_advice():
     else:
         return jsonify({'error': 'Missing ticketId'}), 400
 
+
+@app.route('/api/get-ticket-advice-stream', methods=['GET'])
+def api_get_ticket_advice_stream():
+    """
+    Stream ticket advice generation using Server-Sent Events (SSE).
+    Provides real-time progress updates during the analysis process.
+    
+    Query params:
+    - ticketId: The ticket number to analyze
+    
+    Event types:
+    - progress: {step: number, message: string} - Current step update
+    - complete: Full result data when analysis is finished
+    - error: Error message if something goes wrong
+    """
+    ticket_number = request.args.get('ticketId')
+    
+    if not ticket_number:
+        def error_stream():
+            yield f"event: error\ndata: {json.dumps({'message': 'Missing ticketId parameter'})}\n\n"
+        return app.response_class(error_stream(), mimetype='text/event-stream')
+    
+    def generate_advice_stream():
+        output = Output()
+        
+        try:
+            # Step 1: Fetch original ticket
+            yield f"event: progress\ndata: {json.dumps({'step': 1, 'message': 'Fetching ticket data...'})}\n\n"
+            
+            athena = Athena()
+            original_result = athena.get_ticket_data(ticket_number=ticket_number, view=True)
+            
+            if not original_result or not original_result.get('result'):
+                yield f"event: error\ndata: {json.dumps({'message': f'Could not retrieve ticket {ticket_number}'})}\n\n"
+                return
+            
+            original_data = original_result['result'][0]
+            
+            # Validate ticket number format
+            if not isinstance(ticket_number, str) or len(ticket_number) < 2:
+                yield f"event: error\ndata: {json.dumps({'message': f'Invalid ticket number format: {ticket_number}'})}\n\n"
+                return
+            
+            # Detect ticket type from ticket number
+            ticket_type = ticket_number[:2].lower()
+            available_support_groups = FieldMapper.get_all_labels(ticket_type=ticket_type.lower())
+            
+            # Prepare search text for parallel operations
+            search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
+            
+            # Step 2: Finding similar tickets
+            yield f"event: progress\ndata: {json.dumps({'step': 2, 'message': 'Finding similar tickets...'})}\n\n"
+            
+            # Step 3: Searching documentation (happens in parallel)
+            yield f"event: progress\ndata: {json.dumps({'step': 3, 'message': 'Searching documentation...'})}\n\n"
+            
+            # Execute similar tickets search and OneNote documentation search in parallel
+            similar_tickets = []
+            onenote_docs = []
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                similar_tickets_future = executor.submit(ticket_vector_search, None, original_data, 5)
+                onenote_future = executor.submit(lambda: Databricks().semantic_search_onenote(search_text, limit=5))
+                
+                try:
+                    similar_tickets = similar_tickets_future.result(timeout=60)
+                    onenote_docs = onenote_future.result(timeout=60)
+                except concurrent.futures.TimeoutError:
+                    output.add_line("Warning: Parallel operations timed out")
+                except Exception as e:
+                    output.add_line(f"Warning: Parallel operations failed: {str(e)}")
+            
+            # Step 4: Getting AI recommendations
+            yield f"event: progress\ndata: {json.dumps({'step': 4, 'message': 'Getting AI recommendations...'})}\n\n"
+            
+            # Extract fields for original
+            def extract_fields(ticket):
+                return {
+                    "title": ticket.get("title", ""),
+                    "description": ticket.get("description", ""),
+                    "priority": ticket.get("priority", "") or ticket.get("priorityValue", ""),
+                    "location": ticket.get("location", ""),
+                    "floorValue": ticket.get("floorValue", ""),
+                    "affectedUser_Department": ticket.get("affectedUser_Department", ""),
+                    "affectedUser_Title": ticket.get("affectedUser_Title", "")
+                }
+            
+            structured_data = {
+                "original_ticket": extract_fields(original_data),
+                "similar_tickets": similar_tickets,
+                "onenote_documentation": onenote_docs,
+                "available_support_groups": available_support_groups
+            }
+            
+            # Convert to JSON string and format prompt
+            json_data = json.dumps(structured_data, indent=2)
+            prompt = PROMPTS["ticket_assignment"].format(json_data=json_data)
+            
+            # Get LLM recommendations
+            model = TextGenerationModel()
+            assignment_result = model.ask(prompt, max_retries=3)
+            
+            # Step 5: Finalizing results
+            yield f"event: progress\ndata: {json.dumps({'step': 5, 'message': 'Finalizing results...'})}\n\n"
+            
+            # Map "EUS" to location-specific group if needed
+            original_group = assignment_result.get('recommended_support_group', 'N/A')
+            if original_group == 'EUS':
+                ticket_location = original_data.get('location', '')
+                if ticket_location:
+                    mapped_group = map_eus_to_location_group(ticket_location, available_support_groups)
+                    if mapped_group != 'EUS':
+                        assignment_result['recommended_support_group'] = mapped_group
+            
+            # Prepare final result
+            result = {
+                'original_data': original_data,
+                'similar_tickets': similar_tickets,
+                'onenote_documentation': onenote_docs,
+                'recommended_support_group': assignment_result.get('recommended_support_group'),
+                'recommended_priority_level': assignment_result.get('recommended_priority_level'),
+                'detailed_explanation': assignment_result.get('detailed_explanation')
+            }
+            
+            # Check for error in result
+            if "error" in assignment_result:
+                result['error'] = assignment_result['error']
+            
+            # Send complete event with all data
+            yield f"event: complete\ndata: {json.dumps(result)}\n\n"
+            
+        except Exception as e:
+            error_msg = str(e)
+            output.add_line(f"Error in advice stream: {error_msg}")
+            yield f"event: error\ndata: {json.dumps({'message': error_msg})}\n\n"
+    
+    return app.response_class(
+        generate_advice_stream(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        }
+    )
+
 @app.route('/api/get-validation-tickets', methods=['POST'])
 def api_get_validation_tickets():
     output = Output()

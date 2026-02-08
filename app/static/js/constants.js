@@ -68,6 +68,7 @@ const CONSTANTS = {
   API: {
     SEARCH_TICKETS: '/api/search-tickets',
     GET_TICKET_ADVICE: '/api/get-ticket-advice',
+    GET_TICKET_ADVICE_STREAM: '/api/get-ticket-advice-stream',
     GET_VALIDATION_TICKETS: '/api/get-validation-tickets',
     GET_VALIDATION_TICKETS_STREAM: '/api/get-validation-tickets-stream'
   },
@@ -102,6 +103,16 @@ const CONSTANTS = {
     MULTIPLE_TICKETS_ON: 'multipleTicketsOn'
   },
 
+  // Tooltip texts for toggle buttons
+  TOOLTIPS: {
+    PHONE: 'Search by phone number',
+    MATCH: 'Search by exact sentence match',
+    SEMANTIC: 'Search by semantic description',
+    TICKET: 'Search by ticket similarity',
+    SINGLE_TICKET: 'Get advice for single ticket',
+    MULTIPLE_TICKETS: 'Process multiple tickets in batch'
+  },
+
   // Search modes
   MODES: {
     PHONE: 'phone',
@@ -121,4 +132,5 @@ Object.freeze(CONSTANTS.API);
 Object.freeze(CONSTANTS.DEFAULTS);
 Object.freeze(CONSTANTS.ICONS);
 Object.freeze(CONSTANTS.STORAGE_KEYS);
+Object.freeze(CONSTANTS.TOOLTIPS);
 Object.freeze(CONSTANTS.MODES);

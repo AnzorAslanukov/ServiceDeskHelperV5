@@ -395,6 +395,45 @@ class TicketRenderer {
   }
 
   /**
+   * Render a loading state with progress indication for ticket advice
+   * @param {number} [step=1] - Current step number (1-5)
+   * @param {string} [message='Loading...'] - Progress message to display
+   */
+  static renderLoadingWithProgress(step = 1, message = 'Loading...') {
+    const container = ensureContentArea();
+    const progressPercent = Math.min(step * 20, 100);
+    container.innerHTML = `
+      <div class="d-flex flex-column align-items-center my-5" id="advice-loading-container">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="spinner-border text-primary" role="status" style="width: 2rem; height: 2rem;"></div>
+          <span id="loading-step-text" class="text-primary fs-5 fw-semibold">${message}</span>
+        </div>
+        <div class="progress w-50" style="height: 6px; max-width: 400px;">
+          <div id="loading-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+               style="width: ${progressPercent}%; transition: width 0.3s ease;"></div>
+        </div>
+        <small id="loading-step-counter" class="text-muted mt-2">Step ${step} of 5</small>
+      </div>
+    `;
+  }
+
+  /**
+   * Update the loading progress UI
+   * @param {number} step - Current step number (1-5)
+   * @param {string} message - Progress message to display
+   */
+  static updateLoadingProgress(step, message) {
+    const textEl = document.getElementById('loading-step-text');
+    const barEl = document.getElementById('loading-progress-bar');
+    const counterEl = document.getElementById('loading-step-counter');
+    const progressPercent = Math.min(step * 20, 100);
+    
+    if (textEl) textEl.textContent = message;
+    if (barEl) barEl.style.width = `${progressPercent}%`;
+    if (counterEl) counterEl.textContent = `Step ${step} of 5`;
+  }
+
+  /**
    * Render an error message
    * @param {string} message - Error message to display
    */

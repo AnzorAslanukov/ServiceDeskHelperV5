@@ -53,14 +53,14 @@ class NavigationManager {
     debugLog('[NAVIGATION] - Switching to search mode');
     this.currentSection = 'search';
 
-    // Show search input
-    this.searchUIManager.showSearchInput();
-
-    // Remove assignment toggle buttons
+    // Remove assignment toggle buttons first
     this.assignmentUIManager.remove();
 
-    // Show search toggle buttons
+    // Show search toggle buttons (will recreate if needed)
     this.searchUIManager.show();
+
+    // Show search input
+    this.searchUIManager.showSearchInput();
 
     // Clear content area
     TicketRenderer.clear();

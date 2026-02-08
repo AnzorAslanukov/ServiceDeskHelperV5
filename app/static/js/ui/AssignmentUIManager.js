@@ -21,6 +21,9 @@ class AssignmentUIManager {
   initialize(insertAfterElement = null) {
     debugLog('[ASSIGNMENT_UI] - Initializing AssignmentUIManager');
 
+    // Check if already initialized - remove existing buttons first to prevent duplicates
+    this.remove();
+
     // Create toggle buttons
     this._createToggleButtons(insertAfterElement);
 
@@ -269,7 +272,11 @@ class AssignmentUIManager {
    * @private
    */
   _createToggleButtons(insertAfterElement) {
+    // First, ensure no existing assignment toggle buttons
+    this._removeToggleButtonsOnly();
+
     const assignmentToggleDiv = document.createElement('div');
+    assignmentToggleDiv.id = 'assignment-toggle-container';
     assignmentToggleDiv.className = 'd-flex justify-content-center align-items-center mb-4';
     assignmentToggleDiv.innerHTML = `
       <button id="${CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE}" class="btn single-ticket-btn rounded-circle" aria-label="Single Ticket Toggle">
@@ -291,6 +298,28 @@ class AssignmentUIManager {
         } else {
           targetElement.appendChild(assignmentToggleDiv);
         }
+      }
+    }
+  }
+
+  /**
+   * Remove only the toggle buttons (not batch buttons)
+   * @private
+   */
+  _removeToggleButtonsOnly() {
+    // Try to find by our custom ID first
+    const containerById = document.getElementById('assignment-toggle-container');
+    if (containerById) {
+      containerById.remove();
+      return;
+    }
+
+    // Fallback: find by looking for the single ticket toggle button
+    const singleToggle = document.getElementById(CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE);
+    if (singleToggle) {
+      const toggleDiv = singleToggle.closest('.d-flex');
+      if (toggleDiv && toggleDiv.id !== CONSTANTS.SELECTORS.BATCH_WORKFLOW_BUTTONS) {
+        toggleDiv.remove();
       }
     }
   }
