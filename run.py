@@ -17,6 +17,58 @@ from services.output import Output
 
 DEBUG = True  # Global debug setting for print statements
 
+
+def load_support_groups_from_json(ticket_type="ir"):
+    """
+    Load support groups from support_group_description.json filtered by ticket type.
+    
+    Args:
+        ticket_type (str): "ir" or "sr" to filter support groups by ticket type
+        
+    Returns:
+        list: List of dictionaries containing name, fullname, and description for each support group
+              that has a non-null description and matches the ticket_type.
+              Groups with descriptions are preferred as they indicate assignable groups.
+    """
+    output = Output()
+    json_path = os.path.join(os.path.dirname(__file__), 'services', 'support_group_description.json')
+    
+    if DEBUG:
+        output.add_line(f"Loading support groups from: {json_path}")
+        output.add_line(f"Filtering for ticket_type: {ticket_type}")
+    
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            support_groups = json.load(f)
+        
+        # Filter by ticket_type and require a non-null description
+        # Groups with descriptions indicate they are appropriate for assignment
+        filtered_groups = []
+        for group in support_groups:
+            if (group.get('ticket_type') == ticket_type.lower() and 
+                group.get('description') is not None and
+                group.get('name') != "--Please Select a Support Group--"):  # Skip placeholder
+                filtered_groups.append({
+                    'name': group.get('name', ''),
+                    'fullname': group.get('fullname', ''),
+                    'description': group.get('description', '')
+                })
+        
+        if DEBUG:
+            output.add_line(f"Loaded {len(filtered_groups)} support groups for ticket_type '{ticket_type}'")
+        
+        return filtered_groups
+        
+    except FileNotFoundError:
+        output.add_line(f"Support group description file not found: {json_path}")
+        return []
+    except json.JSONDecodeError as e:
+        output.add_line(f"Error parsing support group JSON: {str(e)}")
+        return []
+    except Exception as e:
+        output.add_line(f"Error loading support groups: {str(e)}")
+        return []
+
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
 
 @app.route('/favicon.ico')
@@ -227,10 +279,10 @@ def map_eus_to_location_group(location_string, available_support_groups):
 
     Args:
         location_string (str): Ticket location (e.g., "RITTENHOUSE - MAIN BLDG (1800 LOMBARD)")
-        available_support_groups (list): List of all valid support group names
+        available_support_groups (list): List of support group dictionaries with 'name' key
 
     Returns:
-        str: Best matching location-specific EUS group, or original location_string if no match
+        str: Best matching location-specific EUS group name, or 'EUS' if no match
     """
     if not location_string or not available_support_groups:
         return "EUS"  # fallback
@@ -271,7 +323,8 @@ def map_eus_to_location_group(location_string, available_support_groups):
     # Filter available groups: remove groups with excluded keywords
     filtered_groups = []
     for group in available_support_groups:
-        group_upper = str(group).upper()
+        group_name = group.get('name', '')
+        group_upper = str(group_name).upper()
         if not any(exclude in group_upper for exclude in ['NETWORK', 'CPD', 'RFID']):
             filtered_groups.append(group)
 
@@ -279,7 +332,8 @@ def map_eus_to_location_group(location_string, available_support_groups):
     scored_groups = []
     for group in filtered_groups:
         score = 0
-        group_upper = str(group).upper()
+        group_name = group.get('name', '')
+        group_upper = str(group_name).upper()
 
         # Direct substring matches get highest score
         for loc_part in location_parts:
@@ -317,7 +371,7 @@ def map_eus_to_location_group(location_string, available_support_groups):
                 score += 3
 
         if score > 0:
-            scored_groups.append((group, score))
+            scored_groups.append((group_name, score))
 
     # Return highest scoring group, or fallback if none found
     if scored_groups:
@@ -393,11 +447,11 @@ def get_ticket_advice(ticket_number):
     if DEBUG:
         output.add_line(f"Detected ticket type: {ticket_type}")
 
-    # Get all available support groups for this ticket type
-    available_support_groups = FieldMapper.get_all_labels(ticket_type=ticket_type.lower())
+    # Get all available support groups for this ticket type from JSON with descriptions
+    available_support_groups = load_support_groups_from_json(ticket_type=ticket_type.lower())
 
     if DEBUG:
-        output.add_line(f"Available support groups ({len(available_support_groups)} total): {available_support_groups[:10]}{'...' if len(available_support_groups) > 10 else ''}")
+        output.add_line(f"Available support groups ({len(available_support_groups)} total): {[g['name'] for g in available_support_groups][:10]}{'...' if len(available_support_groups) > 10 else ''}")
 
     # Prepare search text for parallel operations
     search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
@@ -665,7 +719,7 @@ def api_get_ticket_advice_stream():
             
             # Detect ticket type from ticket number
             ticket_type = ticket_number[:2].lower()
-            available_support_groups = FieldMapper.get_all_labels(ticket_type=ticket_type.lower())
+            available_support_groups = load_support_groups_from_json(ticket_type=ticket_type.lower())
             
             # Prepare search text for parallel operations
             search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
@@ -1068,4 +1122,4 @@ def api_implement_assignments():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
-    # get_ticket_advice("IR10226122")
+    # get_ticket_advice("IR10242158")
