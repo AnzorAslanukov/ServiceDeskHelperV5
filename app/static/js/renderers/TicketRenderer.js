@@ -302,14 +302,22 @@ class TicketRenderer {
     if (data.error) {
       html += getAlertHTML(`<h5>AI Analysis Error</h5><p>${data.error}</p>`, 'danger');
     } else {
-      // Display the AI recommendations in a card format
+      // Display the AI recommendations in a card format with static labels for single ticket mode
+      const firstChoice = data.recommended_support_group || 'N/A';
+      const secondChoice = data.second_choice_support_group || 'N/A';
+      const thirdChoice = data.third_choice_support_group || 'N/A';
+      
       html += `
         <div class="card mb-4">
           <div class="card-body">
             <div class="row">
               <div class="col-md-6">
-                <h6 class="card-title">Recommended Support Group</h6>
-                <p class="h5 text-primary">${data.recommended_support_group || 'N/A'}</p>
+                <h6 class="card-title">AI Recommended Support Groups</h6>
+                <div class="mb-3">
+                  <p class="mb-1"><span class="badge bg-primary">1st Choice</span> <strong>${firstChoice}</strong></p>
+                  <p class="mb-1"><span class="badge bg-secondary">2nd Choice</span> ${secondChoice}</p>
+                  <p class="mb-1"><span class="badge bg-secondary">3rd Choice</span> ${thirdChoice}</p>
+                </div>
                 <h6 class="card-title mt-3">Recommended Priority Level</h6>
                 <p class="h5 text-warning">${data.recommended_priority_level || 'N/A'}</p>
               </div>
@@ -341,6 +349,109 @@ class TicketRenderer {
   }
 
   /**
+   * Render the three-way support group selector
+   * @param {Object} data - Recommendations data containing support groups
+   * @param {string} selectorId - Unique ID for this selector instance
+   * @returns {string} HTML string for the selector
+   * @private
+   */
+  static _renderSupportGroupSelector(data, selectorId) {
+    const firstChoice = data.recommended_support_group || 'N/A';
+    const secondChoice = data.second_choice_support_group || 'N/A';
+    const thirdChoice = data.third_choice_support_group || 'N/A';
+
+    return `
+      <div class="support-group-selector">
+        <span class="support-group-selector-label">Select Support Group for Assignment:</span>
+        <div class="support-group-options">
+          <div class="support-group-option">
+            <input type="radio" id="${selectorId}-1" name="${selectorId}" value="${firstChoice}" checked>
+            <label for="${selectorId}-1">
+              <span class="option-rank">1st Choice</span>
+              <span class="option-name">${firstChoice}</span>
+            </label>
+          </div>
+          <div class="support-group-option">
+            <input type="radio" id="${selectorId}-2" name="${selectorId}" value="${secondChoice}">
+            <label for="${selectorId}-2">
+              <span class="option-rank">2nd Choice</span>
+              <span class="option-name">${secondChoice}</span>
+            </label>
+          </div>
+          <div class="support-group-option">
+            <input type="radio" id="${selectorId}-3" name="${selectorId}" value="${thirdChoice}">
+            <label for="${selectorId}-3">
+              <span class="option-rank">3rd Choice</span>
+              <span class="option-name">${thirdChoice}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render the compact three-way support group selector for batch mode
+   * @param {Object} data - Recommendations data containing support groups
+   * @param {string} selectorId - Unique ID for this selector instance
+   * @returns {string} HTML string for the selector
+   * @private
+   */
+  static _renderSupportGroupSelectorCompact(data, selectorId) {
+    const firstChoice = data.recommended_support_group || 'N/A';
+    const secondChoice = data.second_choice_support_group || 'N/A';
+    const thirdChoice = data.third_choice_support_group || 'N/A';
+
+    return `
+      <div class="support-group-selector support-group-selector-compact">
+        <span class="support-group-selector-label">Select Support Group:</span>
+        <div class="support-group-options">
+          <div class="support-group-option">
+            <input type="radio" id="${selectorId}-1" name="${selectorId}" value="${firstChoice}" checked>
+            <label for="${selectorId}-1">
+              <span class="option-rank">1st</span>
+              <span class="option-name">${firstChoice}</span>
+            </label>
+          </div>
+          <div class="support-group-option">
+            <input type="radio" id="${selectorId}-2" name="${selectorId}" value="${secondChoice}">
+            <label for="${selectorId}-2">
+              <span class="option-rank">2nd</span>
+              <span class="option-name">${secondChoice}</span>
+            </label>
+          </div>
+          <div class="support-group-option">
+            <input type="radio" id="${selectorId}-3" name="${selectorId}" value="${thirdChoice}">
+            <label for="${selectorId}-3">
+              <span class="option-rank">3rd</span>
+              <span class="option-name">${thirdChoice}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Get the selected support group from a selector
+   * @param {string} selectorId - The ID of the selector (or container element for batch mode)
+   * @param {boolean} [isBatch=false] - Whether this is for batch mode
+   * @returns {string|null} The selected support group name, or null if not found
+   */
+  static getSelectedSupportGroup(selectorId, isBatch = false) {
+    if (isBatch && typeof selectorId === 'object') {
+      // For batch mode, selectorId is the container element
+      const container = selectorId;
+      const selectedRadio = container.querySelector('input[type="radio"]:checked');
+      return selectedRadio ? selectedRadio.value : null;
+    }
+    
+    // For single ticket mode
+    const selectedRadio = document.querySelector(`input[name="${selectorId}"]:checked`);
+    return selectedRadio ? selectedRadio.value : null;
+  }
+
+  /**
    * Render batch recommendations for a specific ticket
    * @param {Object} data - Recommendations data
    * @param {number} ticketIndex - Index of the ticket
@@ -360,6 +471,10 @@ class TicketRenderer {
     if (data.error) {
       html += getAlertHTML(`<h6>AI Analysis Error</h6><p>${data.error}</p>`, 'danger');
     } else {
+      // Use compact selector for batch mode
+      const selectorId = `sg-selector-batch-${ticketIndex}`;
+      const selectorHtml = this._renderSupportGroupSelectorCompact(data, selectorId);
+      
       html += `
         <div class="card mt-3">
           <div class="card-header">
@@ -368,8 +483,8 @@ class TicketRenderer {
           <div class="card-body">
             <div class="row">
               <div class="col-md-6">
-                <p><strong>Support Group:</strong> <span class="text-primary">${data.recommended_support_group || 'N/A'}</span></p>
-                <p><strong>Priority:</strong> <span class="text-warning">${data.recommended_priority_level || 'N/A'}</span></p>
+                ${selectorHtml}
+                <p class="mt-2"><strong>Priority:</strong> <span class="text-warning">${data.recommended_priority_level || 'N/A'}</span></p>
               </div>
               <div class="col-md-6">
                 <p><strong>Analysis:</strong></p>

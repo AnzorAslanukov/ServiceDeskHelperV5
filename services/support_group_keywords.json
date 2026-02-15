@@ -1,0 +1,997 @@
+[
+  {
+    "name": "Cerner/Lab IS",
+    "keywords": [
+      "Cerner",
+      "Laboratory",
+      "Information",
+      "System",
+      "LIS",
+      "Oracle",
+      "Lab",
+      "access",
+      "troubleshooting",
+      "instrument",
+      "interfaces",
+      "middleware",
+      "integration"
+    ]
+  },
+  {
+    "name": "CIST",
+    "keywords": [
+      "Imaging",
+      "Sectra",
+      "PACS",
+      "radiology",
+      "cardiology",
+      "ophthalmology",
+      "Zeiss",
+      "Forum"
+    ]
+  },
+  {
+    "name": "Applications (MDS)",
+    "keywords": [
+      "applications",
+      "Histotrac",
+      "OnBase",
+      "Scanning",
+      "SMART",
+      "TheraDoc",
+      "Solcom",
+      "ProVation",
+      "Penn",
+      "Medicine"
+    ]
+  },
+  {
+    "name": "Device Integration (MDS)",
+    "keywords": [
+      "Device",
+      "Integration",
+      "Epic",
+      "PennChart",
+      "CRRT",
+      "fetal",
+      "monitoring",
+      "GE",
+      "QS"
+    ]
+  },
+  {
+    "name": "Technical (MDS)",
+    "keywords": [
+      "MDS",
+      "applications",
+      "speech",
+      "recognition",
+      "billing",
+      "coding",
+      "validation",
+      "monitoring",
+      "neurological",
+      "diagnostics",
+      "RTLS"
+    ]
+  },
+  {
+    "name": "Ambulatory",
+    "keywords": [
+      "PennChart",
+      "ambulatory",
+      "outpatient",
+      "workflows",
+      "lab",
+      "results",
+      "vitals",
+      "tracking",
+      "encounter",
+      "oncology",
+      "care",
+      "tools"
+    ]
+  },
+  {
+    "name": "Inpatient",
+    "keywords": [
+      "PennChart",
+      "inpatient",
+      "providers",
+      "electronic",
+      "health",
+      "record",
+      "system",
+      "chart",
+      "access",
+      "workflows",
+      "order",
+      "security",
+      "access",
+      "issues"
+    ]
+  },
+  {
+    "name": "HIM",
+    "keywords": [
+      "Health",
+      "Information",
+      "HIM",
+      "systems",
+      "workflows",
+      "coding",
+      "applications",
+      "improvement",
+      "auditing",
+      "systems"
+    ]
+  },
+  {
+    "name": "DXC",
+    "keywords": [
+      "infrastructure",
+      "Windows",
+      "Linux",
+      "UNIX",
+      "server",
+      "administration",
+      "backup",
+      "storage",
+      "services",
+      "hardware",
+      "provisioning",
+      "system",
+      "monitoring",
+      "VMware",
+      "Penn",
+      "Medicine",
+      "environment"
+    ]
+  },
+  {
+    "name": "PennDnA",
+    "keywords": [
+      "Business",
+      "Intelligence",
+      "analytics",
+      "services",
+      "reporting",
+      "warehousing",
+      "cloud",
+      "collaboration",
+      "tools",
+      "Tableau",
+      "MIDAS",
+      "PennSeek",
+      "Power",
+      "BI",
+      "custom",
+      "reporting",
+      "Penn",
+      "Medicine"
+    ]
+  },
+  {
+    "name": "Ambulatory Oncology",
+    "keywords": [
+      "OncoLink",
+      "cancer",
+      "care",
+      "tools",
+      "survivorship",
+      "care",
+      "plans",
+      "treatment",
+      "binders",
+      "education",
+      "materials",
+      "PennChart"
+    ]
+  },
+  {
+    "name": "Ambulatory Sustainment",
+    "keywords": [
+      "PennChart",
+      "ambulatory",
+      "outpatient",
+      "workflows",
+      "lab",
+      "results",
+      "vitals",
+      "tracking",
+      "general",
+      "ambulatory",
+      "module",
+      "functionality",
+      "maintenance"
+    ]
+  },
+  {
+    "name": "Inpatient",
+    "keywords": [
+      "PennChart",
+      "inpatient",
+      "providers",
+      "electronic",
+      "health",
+      "record",
+      "system",
+      "chart",
+      "access",
+      "workflows",
+      "education",
+      "troubleshooting",
+      "order",
+      "security",
+      "access",
+      "issues"
+    ]
+  },
+  {
+    "name": "Specialty",
+    "keywords": [
+      "PennChart",
+      "inpatient",
+      "providers",
+      "provider",
+      "education",
+      "troubleshooting",
+      "chart",
+      "completion",
+      "assistance",
+      "security",
+      "access",
+      "issues",
+      "specialty",
+      "care",
+      "workflows"
+    ]
+  },
+  {
+    "name": "3M 360 Encompass",
+    "keywords": [
+      "3M",
+      "360",
+      "Encompass",
+      "Health",
+      "Information",
+      "HIM",
+      "coding",
+      "improvement",
+      "auditing",
+      "systems",
+      "provider",
+      "queries",
+      "Census",
+      "2023"
+    ]
+  },
+  {
+    "name": "Home Health and Hospice",
+    "keywords": [
+      "CPR+",
+      "application",
+      "Penn",
+      "Medicine",
+      "at",
+      "Home",
+      "Penn",
+      "Homecare",
+      "Hospice",
+      "Services",
+      "financial",
+      "workflows",
+      "remote",
+      "access",
+      "OASIS"
+    ]
+  },
+  {
+    "name": "Hospital Billing (Resolute HB)",
+    "keywords": [
+      "hospital",
+      "billings",
+      "operations",
+      "account",
+      "maintenance",
+      "payment",
+      "posting",
+      "charge",
+      "workqueues",
+      "transaction",
+      "inquiries",
+      "refunds",
+      "billing",
+      "access",
+      "requests",
+      "Epic",
+      "Resolute",
+      "bills"
+    ]
+  },
+  {
+    "name": "Professional Billing (Resolute PB)",
+    "keywords": [
+      "Epic",
+      "Resolute",
+      "Professional",
+      "Billing",
+      "issues",
+      "charge",
+      "posting",
+      "workqueue",
+      "access",
+      "payment",
+      "processing",
+      "transaction",
+      "billing",
+      "escalations",
+      "professional",
+      "services"
+    ]
+  },
+  {
+    "name": "Application Development",
+    "keywords": [
+      "custom-developed",
+      "applications",
+      "PennChart",
+      "SOS",
+      "issues",
+      "SharePoint",
+      "site",
+      "access",
+      "requests",
+      "internally",
+      "developed",
+      "software",
+      "solutions",
+      "development",
+      "team"
+    ]
+  },
+  {
+    "name": "AP",
+    "keywords": [
+      "Oracle",
+      "Cerner",
+      "Laboratory",
+      "Information",
+      "System",
+      "access",
+      "requests",
+      "application",
+      "issues",
+      "instrument",
+      "interfaces",
+      "technical"
+    ]
+  },
+  {
+    "name": "Blood Bank",
+    "keywords": [
+      "Laboratory",
+      "Information",
+      "System",
+      "middleware",
+      "HemoHub",
+      "blood",
+      "bank",
+      "instrumentation",
+      "interfaces",
+      "result",
+      "transmission",
+      "order",
+      "downloads",
+      "access"
+    ]
+  },
+  {
+    "name": "GenLab",
+    "keywords": [
+      "Oracle",
+      "Cerner",
+      "Laboratory",
+      "Information",
+      "System",
+      "point",
+      "care",
+      "testing",
+      "lab",
+      "results",
+      "integration",
+      "Epic",
+      "access",
+      "requests"
+    ]
+  },
+  {
+    "name": "Helix",
+    "keywords": [
+      "Oracle",
+      "Cerner",
+      "Laboratory",
+      "Information",
+      "System",
+      "LIS",
+      "access",
+      "requests",
+      "ChimerMarker",
+      "application",
+      "host",
+      "file",
+      "lab",
+      "result",
+      "issues"
+    ]
+  },
+  {
+    "name": "Micro",
+    "keywords": [
+      "Oracle",
+      "Cerner",
+      "Laboratory",
+      "Information",
+      "System",
+      "LIS",
+      "Millennium",
+      "AppBar",
+      "MDI",
+      "instrument",
+      "interfaces",
+      "access",
+      "requests",
+      "application",
+      "monitoring"
+    ]
+  },
+  {
+    "name": "POC Supervisors",
+    "keywords": [
+      "Point",
+      "Care",
+      "laboratory",
+      "test",
+      "results",
+      "integration",
+      "lab",
+      "instruments",
+      "Epic",
+      "connectivity",
+      "issues",
+      "missing",
+      "results",
+      "provider",
+      "alias",
+      "mismatches"
+    ]
+  },
+  {
+    "name": "Technical",
+    "keywords": [
+      "technical",
+      "infrastructure",
+      "laboratory",
+      "information",
+      "systems",
+      "FSI",
+      "interfaces",
+      "instrument",
+      "connectivity",
+      "system",
+      "access",
+      "Oracle",
+      "Cerner/LIS"
+    ]
+  },
+  {
+    "name": "Cerner Other",
+    "keywords": [
+      "Oracle",
+      "Cerner",
+      "Millennium",
+      "application",
+      "AppBar",
+      "setup",
+      "account",
+      "requests",
+      "host",
+      "file",
+      "laboratory",
+      "information",
+      "system",
+      "LIS",
+      "configurations",
+      "troubleshooting"
+    ]
+  },
+  {
+    "name": "Zeiss Forum",
+    "keywords": [
+      "ophthalmology",
+      "PACS",
+      "retinal",
+      "glaucoma",
+      "imaging",
+      "user",
+      "access",
+      "provisioning",
+      "authentication"
+    ]
+  },
+  {
+    "name": "MIM",
+    "keywords": [
+      "imaging",
+      "software",
+      "visualization",
+      "analysis",
+      "VNA",
+      "Vendor",
+      "Neutral",
+      "Archive",
+      "integrated",
+      "PennCIL",
+      "Mach7",
+      "Chester",
+      "County",
+      "Imaging"
+    ]
+  },
+  {
+    "name": "PennChart Radiant",
+    "keywords": [
+      "radiology",
+      "imaging",
+      "integration",
+      "PennChart",
+      "PowerScribe",
+      "360",
+      "study",
+      "filing",
+      "result",
+      "associations",
+      "worklist",
+      "radiology",
+      "workflows"
+    ]
+  },
+  {
+    "name": "Reports (Radiology)",
+    "keywords": [
+      "Sectra",
+      "PACS",
+      "radiology",
+      "imaging",
+      "systems",
+      "DICOM",
+      "readers",
+      "imaging",
+      "radiology",
+      "reporting",
+      "applications"
+    ]
+  },
+  {
+    "name": "Systems Programming",
+    "keywords": [
+      "Sectra",
+      "PACS",
+      "radiology",
+      "systems",
+      "cardiology",
+      "imaging",
+      "imaging",
+      "interfaces",
+      "diagnostic/technologist",
+      "PC",
+      "issues"
+    ]
+  },
+  {
+    "name": "Ccure/Enterprise Badging",
+    "keywords": [
+      "physical",
+      "security",
+      "access",
+      "control",
+      "system",
+      "badge",
+      "door",
+      "access",
+      "facility",
+      "security",
+      "monitoring"
+    ]
+  },
+  {
+    "name": "Docusign",
+    "keywords": [
+      "enterprise",
+      "e-signature",
+      "platform",
+      "electronic",
+      "document",
+      "signing",
+      "account",
+      "PennMedicine",
+      "network",
+      "credentials"
+    ]
+  },
+  {
+    "name": "Employee Records",
+    "keywords": [
+      "employee",
+      "payroll",
+      "records",
+      "paychecks",
+      "HRIS",
+      "system",
+      "integration",
+      "Lawson"
+    ]
+  },
+  {
+    "name": "Genetec",
+    "keywords": [
+      "video",
+      "surveillance",
+      "physical",
+      "security",
+      "camera",
+      "systems",
+      "user",
+      "access",
+      "camera",
+      "connectivity",
+      "troubleshooting"
+    ]
+  },
+  {
+    "name": "HRIS/PennforPeopleHR",
+    "keywords": [
+      "PennforPeople",
+      "HR",
+      "system",
+      "access",
+      "production",
+      "issues",
+      "HRIS",
+      "form",
+      "Workday",
+      "related",
+      "requests"
+    ]
+  },
+  {
+    "name": "Kronos",
+    "keywords": [
+      "workforce",
+      "system",
+      "employee",
+      "timekeeping",
+      "scheduling",
+      "timecard",
+      "access",
+      "mobile",
+      "time",
+      "tracking",
+      "cost",
+      "centers",
+      "estar",
+      "e-star",
+      "e star"
+    ]
+  },
+  {
+    "name": "Lawson/Pennfor",
+    "keywords": [
+      "access",
+      "requests",
+      "installation",
+      "client",
+      "troubleshooting",
+      "Lawson",
+      "financial",
+      "system",
+      "PennforPeople",
+      "HR",
+      "platform",
+      "user",
+      "provisioning",
+      "authentication",
+      "issues"
+    ]
+  },
+  {
+    "name": "NFS/Workplace",
+    "keywords": [
+      "NFS/WorkPlace",
+      "hoteling",
+      "desk",
+      "reservation",
+      "system",
+      "mobile",
+      "app",
+      "installation",
+      "site",
+      "access",
+      "issues",
+      "reservation",
+      "troubleshooting"
+    ]
+  },
+  {
+    "name": "Penn Symphony",
+    "keywords": [
+      "web-based",
+      "application",
+      "exam",
+      "room",
+      "assignments",
+      "managing",
+      "schedules",
+      "providers",
+      "exam",
+      "room",
+      "utilization",
+      "outpatient",
+      "settings"
+    ]
+  },
+  {
+    "name": "Penn Symphony Technical",
+    "keywords": [
+      "web-based",
+      "scheduling",
+      "application",
+      "exam",
+      "room",
+      "assignments",
+      "managing",
+      "provider",
+      "schedules",
+      "exam",
+      "room",
+      "utilization",
+      "CPUP"
+    ]
+  },
+  {
+    "name": "IS PMO",
+    "keywords": [
+      "project",
+      "office",
+      "functions",
+      "network",
+      "port",
+      "activations",
+      "application",
+      "transfers",
+      "coordination",
+      "infrastructure",
+      "changes",
+      "Penn",
+      "Medicine",
+      "locations"
+    ]
+  },
+  {
+    "name": "Histotrac",
+    "keywords": [
+      "Histotrac",
+      "application",
+      "Pathology",
+      "Labs",
+      "Transplants",
+      "citizen",
+      "farm",
+      "access",
+      "requests",
+      "login",
+      "issues",
+      "application"
+    ]
+  },
+  {
+    "name": "OnBase Scanning",
+    "keywords": [
+      "document",
+      "scanning",
+      "viewing",
+      "OnBase",
+      "Unity",
+      "Client",
+      "Records",
+      "system",
+      "PennChart",
+      "Medview",
+      "integration"
+    ]
+  },
+  {
+    "name": "SMART",
+    "keywords": [
+      "PwC",
+      "SMART",
+      "billing",
+      "application",
+      "procedure",
+      "coding",
+      "errors",
+      "PennChart",
+      "HIM",
+      "billing",
+      "teams"
+    ]
+  },
+  {
+    "name": "TheraDoc",
+    "keywords": [
+      "TheraDoc",
+      "application",
+      "systems",
+      "SMART",
+      "billing",
+      "application",
+      "Solcom",
+      "Web",
+      "Solution",
+      "procedure",
+      "coding",
+      "workflows"
+    ]
+  },
+  {
+    "name": "Capsule",
+    "keywords": [
+      "device",
+      "integration",
+      "Epic",
+      "PennChart",
+      "CRRT",
+      "devices",
+      "Capsule",
+      "server",
+      "interfaces",
+      "HL7",
+      "message",
+      "monitoring",
+      "equipment",
+      "connectivity"
+    ]
+  },
+  {
+    "name": "GE QS Fetal Monitoring",
+    "keywords": [
+      "GE",
+      "Quantitative",
+      "Sentinel",
+      "fetal",
+      "monitoring",
+      "system",
+      "Labor",
+      "Delivery",
+      "ADT",
+      "integration",
+      "perinatal"
+    ]
+  },
+  {
+    "name": "Censitrac",
+    "keywords": [
+      "billing",
+      "applications",
+      "SMART",
+      "coding",
+      "validation",
+      "ProVation",
+      "Solcom",
+      "OTTR",
+      "Censitrac",
+      "enterprise",
+      "applications"
+    ]
+  },
+  {
+    "name": "Mmodal",
+    "keywords": [
+      "speech",
+      "recognition",
+      "software",
+      "billing",
+      "coding",
+      "applications",
+      "SMART",
+      "Solcom",
+      "Web",
+      "Solution",
+      "MModal",
+      "Fluency",
+      "Direct",
+      "dictation",
+      "tools"
+    ]
+  },
+  {
+    "name": "Penn e-lert",
+    "keywords": [
+      "monitoring",
+      "alert",
+      "system",
+      "critical",
+      "care",
+      "units",
+      "notifications"
+    ]
+  },
+  {
+    "name": "Xltek",
+    "keywords": [
+      "Xltek",
+      "neurological",
+      "monitoring",
+      "systems",
+      "EEG",
+      "applications"
+    ]
+  },
+  {
+    "name": "RTLS (Aeroscout)",
+    "keywords": [
+      "AeroScout",
+      "RTLS/RFID",
+      "systems",
+      "MobileView",
+      "HUGS",
+      "applications",
+      "asset",
+      "tracking",
+      "temperature",
+      "monitoring",
+      "staff",
+      "duress",
+      "nurse",
+      "call",
+      "infant",
+      "protection"
+    ]
+  },
+  {
+    "name": "Rad Onc",
+    "keywords": [
+      "Varian",
+      "Aria",
+      "Eclipse",
+      "ABO",
+      "applications",
+      "radiation",
+      "oncology",
+      "treatment",
+      "planning",
+      "cancer",
+      "care",
+      "PennMedicine"
+    ]
+  },
+  {
+    "name": "Sunquest / Lab IS",
+    "keywords": [
+      "laboratory",
+      "information",
+      "system",
+      "lab",
+      "orders",
+      "results",
+      "interfaces",
+      "specimen",
+      "tracking",
+      "PennChart",
+      "LabCorp",
+      "Quest",
+      "Chester",
+      "County"
+    ]
+  }
+]

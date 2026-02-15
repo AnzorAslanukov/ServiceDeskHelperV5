@@ -7,6 +7,7 @@ from services.athena import Athena
 from services.databricks import Databricks
 from services.embedding_model import EmbeddingModel
 from services.text_generation_model import TextGenerationModel
+from services.keyword_match import KeywordMatch
 from services.prompts import PROMPTS
 from services.field_mapping import FieldMapper
 
@@ -447,11 +448,16 @@ def get_ticket_advice(ticket_number):
     if DEBUG:
         output.add_line(f"Detected ticket type: {ticket_type}")
 
-    # Get all available support groups for this ticket type from JSON with descriptions
-    available_support_groups = load_support_groups_from_json(ticket_type=ticket_type.lower())
+    # Get relevant support groups for this ticket using keyword matching to reduce context bloat
+    keyword_matcher = KeywordMatch()
+    support_match_result = keyword_matcher.match_support_groups(original_data)
+
+    # Combine for EUS mapping function (needs all available groups)
+    available_support_groups = support_match_result['location_specific_support'] + support_match_result['global_support']
 
     if DEBUG:
-        output.add_line(f"Available support groups ({len(available_support_groups)} total): {[g['name'] for g in available_support_groups][:10]}{'...' if len(available_support_groups) > 10 else ''}")
+        total_groups = len(support_match_result['location_specific_support']) + len(support_match_result['global_support'])
+        output.add_line(f"Available support groups ({total_groups} total): {len(support_match_result['location_specific_support'])} location-specific, {len(support_match_result['global_support'])} global")
 
     # Prepare search text for parallel operations
     search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
@@ -495,11 +501,22 @@ def get_ticket_advice(ticket_number):
         "original_ticket": extract_fields(original_data),
         "similar_tickets": similar_tickets,
         "onenote_documentation": onenote_docs,
-        "available_support_groups": available_support_groups
+        "location_specific_support_groups": support_match_result['location_specific_support'],
+        "global_support_groups": support_match_result['global_support']
     }
 
     # Convert to JSON string
     json_data = json.dumps(structured_data, indent=2)
+
+    # Debug flag specifically for printing full json_data contents to output.txt
+    DEBUG_JSON_DATA = True  # Set to False to disable json_data debugging
+
+    if DEBUG_JSON_DATA:
+        output = Output()
+        output.add_line("=== FULL JSON_DATA CONTENTS FOR DEBUGGING ===")
+        output.add_line(json_data)
+        output.add_line("=== END JSON_DATA DEBUG OUTPUT ===")
+
 
     # Format prompt with JSON data
     prompt = PROMPTS["ticket_assignment"].format(json_data=json_data)
@@ -530,6 +547,8 @@ def get_ticket_advice(ticket_number):
                     output.add_line("Warning: Generic 'EUS' could not be mapped to location-specific group")
 
         output.add_line(f"Recommended Support Group: {assignment_result.get('recommended_support_group', 'N/A')}")
+        output.add_line(f"Second Choice Support Group: {assignment_result.get('second_choice_support_group', 'N/A')}")
+        output.add_line(f"Third Choice Support Group: {assignment_result.get('third_choice_support_group', 'N/A')}")
         output.add_line(f"Recommended Priority Level: {assignment_result.get('recommended_priority_level', 'N/A')}")
         output.add_line("Detailed Explanation:")
         output.add_line(assignment_result.get('detailed_explanation', 'N/A'))
@@ -540,6 +559,8 @@ def get_ticket_advice(ticket_number):
             'similar_tickets': similar_tickets,
             'onenote_documentation': onenote_docs,
             'recommended_support_group': assignment_result.get('recommended_support_group'),
+            'second_choice_support_group': assignment_result.get('second_choice_support_group'),
+            'third_choice_support_group': assignment_result.get('third_choice_support_group'),
             'recommended_priority_level': assignment_result.get('recommended_priority_level'),
             'detailed_explanation': assignment_result.get('detailed_explanation')
         }
@@ -719,7 +740,10 @@ def api_get_ticket_advice_stream():
             
             # Detect ticket type from ticket number
             ticket_type = ticket_number[:2].lower()
-            available_support_groups = load_support_groups_from_json(ticket_type=ticket_type.lower())
+            # Get relevant support groups for this ticket using keyword matching to reduce context bloat
+            keyword_matcher = KeywordMatch()
+            support_match_result = keyword_matcher.match_support_groups(original_data)
+            available_support_groups = support_match_result['location_specific_support'] + support_match_result['global_support']
             
             # Prepare search text for parallel operations
             search_text = f"{original_data.get('title', '')} {original_data.get('description', '')}".strip()
@@ -765,12 +789,14 @@ def api_get_ticket_advice_stream():
                 "original_ticket": extract_fields(original_data),
                 "similar_tickets": similar_tickets,
                 "onenote_documentation": onenote_docs,
-                "available_support_groups": available_support_groups
+                "location_specific_support_groups": support_match_result['location_specific_support'],
+                "global_support_groups": support_match_result['global_support']
             }
             
             # Convert to JSON string and format prompt
             json_data = json.dumps(structured_data, indent=2)
             prompt = PROMPTS["ticket_assignment"].format(json_data=json_data)
+            output.add_line(f"Length of prompt: {len(prompt)}")
             
             # Get LLM recommendations
             model = TextGenerationModel()
@@ -794,6 +820,8 @@ def api_get_ticket_advice_stream():
                 'similar_tickets': similar_tickets,
                 'onenote_documentation': onenote_docs,
                 'recommended_support_group': assignment_result.get('recommended_support_group'),
+                'second_choice_support_group': assignment_result.get('second_choice_support_group'),
+                'third_choice_support_group': assignment_result.get('third_choice_support_group'),
                 'recommended_priority_level': assignment_result.get('recommended_priority_level'),
                 'detailed_explanation': assignment_result.get('detailed_explanation')
             }
@@ -1122,4 +1150,4 @@ def api_implement_assignments():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
-    # get_ticket_advice("IR10242158")
+    # get_ticket_advice("SR10254820")

@@ -60,7 +60,7 @@
       "Penn Symphony Technical"
     ],
     "parent_path": "Applications",
-    "description": "Oversees enterprise business applications including physical security systems (CCure, Genetec), HR systems (HRIS, Employee Records), document management (DocuSign), workplace services, and other corporate software supporting organizational operations.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -419,7 +419,7 @@
       "SRW Requests"
     ],
     "parent_path": "",
-    "description": "Oversees core IT service delivery operations including incident management, device inventory, compliance and change management, surgical equipment tracking, and service request fulfillment across the organization.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -541,7 +541,7 @@
       "SOP (LGH)"
     ],
     "parent_path": "LGH\\Shared Services (LGH)",
-    "description": "Provides comprehensive PC and endpoint technical support for LGH facilities, including hardware troubleshooting, device setup, domain access configuration, wireless connectivity, printing services, and IT project implementations for hospital and commercial",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -725,7 +725,7 @@
       "Vulnerability Management"
     ],
     "parent_path": "Technology\\Infrastructure",
-    "description": "Oversees enterprise security operations including threat detection and response, vulnerability management, risk and compliance monitoring, phishing protection, web filtering, email quarantine, and security infrastructure deployment.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -752,7 +752,7 @@
       "VDI (LGH)"
     ],
     "parent_path": "Technology\\Infrastructure",
-    "description": "Oversees end-user computing infrastructure and services including endpoint device management, virtual desktop infrastructure (VDI), Microsoft 365 services, platform engineering, and desktop support across UPHS and LGH environments.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -2034,7 +2034,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "LGH\\Epic (LGH)\\Epic Clinical Apps (LGH)",
-    "description": "Handles Epic clinical documentation issues, break-fix support, and inpatient clinical application support for hospital workflows and end-users.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -2367,7 +2367,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "LGH\\Technical Services (LGH)",
-    "description": "Provides shared technical services and infrastructure support for Lancaster General Hospital, including endpoint management, server operations, and cross-domain access coordination.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -2871,7 +2871,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "Service Desk",
-    "description": "Handles validation and routing of tickets to ensure requests are directed to the correct support teams, including verification of legitimate service requests versus spam or non-technical issues.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -2898,7 +2898,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "Technology\\Infrastructure\\Account Provisioning\\myPennAccess",
-    "description": "Handles user account provisioning, access requests, and password resets for PennChart clinical application users through the PennforPeople NPR process and training requirements.",
+    "description": null,
     "ticket_type": "ir"
   },
   {
@@ -3196,7 +3196,7 @@
       "Penn Symphony Technical"
     ],
     "parent_path": "Applications",
-    "description": "Manages enterprise-wide corporate applications including physical security systems (CCure, Genetec), HR and employee management platforms (HRIS, Employee Records, Lawson), document management (DocuSign), workplace services, and applicant tracking systems.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -3555,7 +3555,7 @@
       "SRW Requests"
     ],
     "parent_path": "",
-    "description": "Oversees core IT operational systems and processes including service management ticketing, asset inventory, change management compliance, surgical equipment tracking, and enterprise-wide service request fulfillment.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -3677,7 +3677,7 @@
       "Projects (LGH)"
     ],
     "parent_path": "LGH\\Shared Services (LGH)",
-    "description": "Provides comprehensive PC technical support services across Lancaster General Hospital locations, including hardware troubleshooting, device setup, domain access configuration, printer support, and wireless connectivity for LGH and Penn staff.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -3861,7 +3861,7 @@
       "Vulnerability Management"
     ],
     "parent_path": "Technology\\Infrastructure",
-    "description": "Oversees enterprise-wide cybersecurity operations including threat detection and response, security incident management, vulnerability assessment and remediation, risk compliance, and security infrastructure protection across all Penn Medicine systems.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -3888,7 +3888,7 @@
       "VDI (LGH)"
     ],
     "parent_path": "Technology\\Infrastructure",
-    "description": "Oversees end user computing infrastructure and services including endpoint device management, virtual desktop infrastructure (VDI), Microsoft 365 platforms, Active Directory, and enterprise application access for both UPHS and LGH environments.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -5171,7 +5171,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "LGH\\Epic (LGH)\\Epic Clinical Apps (LGH)",
-    "description": "Handles Epic clinical documentation issues, break-fix support, and inpatient clinical application support for hospital workflows and patient encounters.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -5504,7 +5504,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "LGH\\Technical Services (LGH)",
-    "description": "Provides shared technical services including endpoint management, domain access coordination, and infrastructure support for Lancaster General Hospital systems and applications.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -6008,7 +6008,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "Service Desk",
-    "description": "Handles validation and routing of tickets to ensure requests are directed to the correct support teams, including vendor-generated notifications and cross-organizational issues.",
+    "description": null,
     "ticket_type": "sr"
   },
   {
@@ -6035,7 +6035,7 @@
     "has_children": false,
     "sub_domains": [],
     "parent_path": "Technology\\Infrastructure\\Account Provisioning\\myPennAccess",
-    "description": "Handles provisioning of user accounts and access for the PennChart clinical application system, including new user setup through PennforPeople NPR process and training coordination.",
+    "description": null,
     "ticket_type": "sr"
   },
   {

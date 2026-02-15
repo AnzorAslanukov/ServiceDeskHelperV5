@@ -211,6 +211,16 @@ class FieldMapper:
         """
         standard_fields = set(ATHENA_TO_STANDARD.values())
         standard_fields.update(DATABRICKS_TO_STANDARD.values())
+
+        # Add keyword match output fields (not mapped from external sources but are standardized field names)
+        keyword_match_fields = {
+            'user_location',
+            'incident_location',
+            'location_specific_support',
+            'global_support'
+        }
+        standard_fields.update(keyword_match_fields)
+
         return standard_fields
 
     @staticmethod

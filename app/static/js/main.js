@@ -516,6 +516,7 @@ async function handleGetRecommendations() {
 /**
  * Handle implement ticket assignment button click
  * Implements assignments for selected tickets using AI recommendations
+ * Uses the user-selected support group from the three-way selector
  */
 async function handleImplementAssignment() {
   debugLog('[MAIN] - Implement ticket assignment clicked');
@@ -528,27 +529,50 @@ async function handleImplementAssignment() {
     return;
   }
 
-  // Filter tickets that have recommendation data
-  const ticketsWithRecommendations = selectedTickets.filter(ticket => 
-    ticket.recommendation && ticket.recommendation.recommended_support_group && 
-    ticket.recommendation.recommended_support_group !== 'N/A'
-  );
+  // Get recommendations container for each ticket to read the selected support group
+  const assignments = [];
+  const ticketsWithoutRecommendations = [];
 
-  if (ticketsWithRecommendations.length === 0) {
-    alert('No selected tickets have AI recommendations. Please get recommendations first.');
+  for (const ticket of selectedTickets) {
+    const recommendationsContainer = document.getElementById(`recommendations-${ticket.index}`);
+    
+    if (!recommendationsContainer) {
+      ticketsWithoutRecommendations.push(ticket.id);
+      continue;
+    }
+
+    // Get the selected support group from the radio buttons in the container
+    const selectedRadio = recommendationsContainer.querySelector('input[type="radio"]:checked');
+    const selectedSupportGroup = selectedRadio ? selectedRadio.value : null;
+
+    // Get priority from stored recommendation data
+    const recommendationData = TicketRenderer.getRecommendationData(ticket.index);
+    const priority = recommendationData && recommendationData.recommended_priority_level !== 'N/A'
+      ? parseInt(recommendationData.recommended_priority_level) 
+      : null;
+
+    if (selectedSupportGroup && selectedSupportGroup !== 'N/A') {
+      assignments.push({
+        ticket_id: ticket.id,
+        support_group: selectedSupportGroup,
+        priority: priority
+      });
+    } else {
+      ticketsWithoutRecommendations.push(ticket.id);
+    }
+  }
+
+  if (assignments.length === 0) {
+    alert('No selected tickets have valid AI recommendations. Please get recommendations first.');
     return;
   }
 
-  // Prepare the assignment data
-  const assignments = ticketsWithRecommendations.map(ticket => ({
-    ticket_id: ticket.id,
-    support_group: ticket.recommendation.recommended_support_group,
-    priority: ticket.recommendation.recommended_priority_level !== 'N/A' 
-      ? parseInt(ticket.recommendation.recommended_priority_level) 
-      : null
-  }));
+  if (ticketsWithoutRecommendations.length > 0) {
+    debugLog('[MAIN] - Some tickets skipped (no recommendations):', ticketsWithoutRecommendations);
+  }
 
   debugLog('[MAIN] - Implementing assignments for', assignments.length, 'tickets');
+  debugLog('[MAIN] - Assignments:', assignments);
 
   // Disable the implement button during processing
   const implementBtn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);

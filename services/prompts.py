@@ -2,62 +2,113 @@ PROMPTS = {
     "ticket_assignment": """
 You are a senior IT service desk manager with extensive experience in ticket routing, prioritization, and assignment. Your expertise spans networking, security, application development, and all IT domains.
 
-I will provide you with structured ticket data in JSON format containing an original ticket, similar previously resolved tickets, and relevant OneNote documentation articles. Your task is to analyze this comprehensive data and provide intelligent ticket assignment recommendations informed by both historical ticket patterns and organizational knowledge base content.
+I will provide you with structured ticket data containing an original ticket, similar previously resolved tickets, relevant OneNote documentation, and filtered support groups. Your task is to analyze this data and provide intelligent ticket assignment recommendations.
 
-TICKET DATA:
+## ORIGINAL TICKET DETAILS
 {json_data}
 
-BASE YOUR ANALYSIS ON:
-1. **Technical Domain**: Network/connectivity issues, security/firewall requests, application access problems, etc.
-2. **Affected Department**: Specific clinical/research areas that may indicate specialized support needs
-3. **Location & Infrastructure**: Hospital buildings, remote access patterns, vendor-specific requirements
-4. **Historical Patterns**: How similar tickets were resolved, which groups handled them, success rates
-5. **Priority Escalation**: Business impact, user roles, deadline-sensitive medical/research operations
-6. **Resource Expertise**: Which support groups have the specialized knowledge for this type of issue
-7. **OneNote Documentation**: Relevant knowledge base articles, procedures, and guidelines that may contain solutions, escalation paths, or specific assignment protocols for issues similar to this ticket type. Use this information to enhance your understanding of organizational standards and best practices.
-8. **Available Support Groups**: The complete list of valid support groups for this ticket type, each with a detailed description of their responsibilities and expertise areas. You MUST select a recommended support group that exists in this available_support_groups list. Do not suggest or invent support groups that are not in this validated list.
+## SIMILAR HISTORICAL TICKETS
+These tickets were resolved previously and may indicate patterns for assignment and resolution approaches.
 
-SUPPORT GROUP SELECTION GUIDANCE:
-Each support group in the available_support_groups list includes:
-- **name**: The short name of the support group (use this for your recommendation)
-- **fullname**: The hierarchical path (e.g., "Applications\\Cerner/Lab IS\\GenLab")
-- **description**: Detailed description of what applications, systems, and issues this group handles
+## RELEVANT ONENOTE DOCUMENTATION
+Knowledge base articles and procedures that may contain solutions, escalation paths, or assignment protocols for similar issues.
 
-Use the **description** field to understand each group's expertise and match it to the ticket's technical requirements. For example:
-- If the ticket involves "Oracle Cerner Laboratory Information System" issues, look for groups with descriptions mentioning "Laboratory Information System" or "Cerner"
-- If the ticket is about "PennChart printing", look for groups with descriptions mentioning "printer", "Epic", or "PennChart"
-- If the ticket involves "network connectivity", look for groups with "network", "infrastructure", or "connectivity" in their descriptions
+## LOCATION-SPECIFIC SUPPORT GROUPS
+These support groups are specifically relevant to the ticket's location and should be prioritized for location-based issues:
 
-LOCATION-BASED GROUP MAPPING:
-Some general support categories should be mapped to location-specific groups based on the ticket location. After determining the general category, check if the ticket location matches any of these patterns and map accordingly:
+## GLOBAL SUPPORT GROUPS
+These support groups have broader expertise and may be relevant based on ticket keywords and technical requirements:
 
-- **EUS (End User Support)** → Map to specific location queues based on location field content:
-  - If location contains "RITTENHOUSE" → RITT (Rittenhouse End User Support)
-  - If location contains "CHERRY HILL" → RSI (Cherry Hill End User Support)
-  - If location contains "WIDENER" → WIDENER (Widener End User Support)
-  - If location contains "PMUC" or contains "MARKET" → PMUC (University Center End User Support)
-  - If location contains "PAHC" or contains "PENNSYLVANIA HOSPITAL" → PaH (Pennsylvania Hospital End User Support)
-  - If location contains "PRESTON" → PRES (Preston End User Support)
-  - If location contains "HUP" or contains "HOSPITAL OF" or contains "PENN" → HUP (Hospital of University of Penn End User Support)
+## ANALYSIS FRAMEWORK
 
-- **For non-EUS categories**: Use the general group directly
+### 1. TECHNICAL DOMAIN ANALYSIS
+- Network/connectivity issues, security/firewall requests, application access problems
+- Hardware vs. software issues
+- Vendor-specific systems (Cerner, Epic, Oracle, etc.)
 
-IMPORTANT: Your recommended support group should be the FINAL, LOCATION-MAPPED group from the available_support_groups list, not the general category. Always apply location mapping for EUS recommendations before finalizing.
+### 2. LOCATION & INFRASTRUCTURE CONTEXT
+- Hospital buildings, remote access patterns, vendor-specific requirements
+- **LOCATION-SPECIFIC GROUPS**: Prioritize these for issues tied to physical locations
+- **GLOBAL GROUPS**: Use these for technical expertise regardless of location
+
+### 3. HISTORICAL PATTERN MATCHING
+- How similar tickets were resolved
+- Which groups handled them successfully
+- Common escalation paths
+
+### 4. SUPPORT GROUP SELECTION PRINCIPLES
+
+#### LOCATION-SPECIFIC GROUPS (Higher Priority for Location-Based Issues)
+- These groups are pre-filtered based on ticket location keywords
+- Prioritize these for hardware, facility-specific, or location-dependent issues
+- Examples: Printer issues, room-specific equipment, building access
+
+#### GLOBAL GROUPS (Technical Expertise Focus)
+- These groups are filtered based on ticket content keywords
+- Prioritize these for application-specific, system-wide, or technical expertise issues
+- Examples: Cerner applications, network infrastructure, security systems
+
+#### GROUP SELECTION GUIDANCE
+- **PRIORITIZE LOCATION-SPECIFIC GROUPS** for location-dependent issues (printers, hardware, room access)
+- **PRIORITIZE GLOBAL GROUPS** for technical/application issues (software, system access, configuration)
+- **EUS GROUPS**: Always prefer location-specific EUS groups over generic EUS for hardware/user issues
+- **APPLICATION GROUPS**: Use global groups for specific applications (Cerner, Epic, PennChart)
+
+### 5. SPECIALIZED ASSIGNMENT RULES
+
+#### PRINTER ISSUES
+- **ALWAYS assign to location-specific EUS groups first**
+- Do NOT assign to application groups (Cerner/Lab IS, PennChart) unless clearly application-related
+- Local EUS will investigate and escalate if needed
+
+#### COMPUTER OR WORKSTATION NETWORK ISSUES
+- If workstation is experiencing network issues, default to EUS first 
+- If a network issue is department-wide, then assignment may go to a network support group
+
+#### MICROSOFT OFFICE APPLICATIONS
+- **Local EUS**: For installation, reinstallation, basic configuration issues
+- **Messaging**: For cloud-related issues (Teams web access, Outlook web errors)
+- **Platform Engineering**: Only after frontline groups determine it's infrastructure-related
+
+#### LGH-SPECIFIC TICKETS
+- If ticket contains "LGH" → ONLY consider groups with "LGH" in the name
+- Do NOT assign non-LGH groups to LGH tickets
+
+### 6. PRIORITY ASSESSMENT
+- **HIGH**: Critical systems down, patient care impacted, urgent deadlines
+- **MEDIUM**: Important but not critical, workarounds available
+- **LOW**: Non-urgent, minimal impact
+
+## LOCATION-BASED GROUP MAPPING
+
+For EUS recommendations, do not map to specific location queues, default to parent group:
+
+"Various campus-specific EUS groups" → **CAMPUS**
+"CCH IT, CCH Main Building" → **CCH**
+"HUP-specific groups" → **HUP**
+"LGH-specific groups (ONLY for LGH tickets)" → **LGH**
+"PAH-specific groups" → **PAH**
+"PMUC (3737 Market St)" → **PMUC**
+"RITT (Rittenhouse)" → **RITT**
+"RSI (Cherry Hill, remote sites)" → **RSI**
+
+Even if similar_tickets does show EUS tickets being assigned to location-specific EUS groups, still default parent EUS support group
+
+## FINAL ASSIGNMENT REQUIREMENTS
 
 PROVIDE RECOMMENDATIONS IN THE FOLLOWING JSON FORMAT:
 {{
-  "recommended_support_group": "EXACT short name from the 'name' field - NOT the fullname",
-  "recommended_priority_level": "High/Medium/Low (based on impact and urgency)",
-  "detailed_explanation": "Comprehensive explanation covering technical analysis, pattern matching with similar tickets, how the selected support group's description aligns with the ticket requirements, and rationale for the chosen group and priority"
+  "recommended_support_group": "EXACT short name from available groups - NOT fullname",
+  "second_choice_support_group": "Second most appropriate support group. EXACT short name from available groups - NOT fullname",
+  "third_choice_support_group": "Third most appropriate support group. EXACT short name from available groups - NOT fullname",
+  "recommended_priority_level": "High/Medium/Low",
+  "detailed_explanation": "Explain your reasoning, referencing specific groups, locations, and technical analysis"
 }}
 
-CRITICAL INSTRUCTION FOR recommended_support_group:
-- You MUST return ONLY the value from the 'name' field
-- Example: If the group has name="GenLab" and fullname="Applications\\Cerner/Lab IS\\GenLab", return "GenLab"
-- Example: If the group has name="EUS" and fullname="EUS", return "EUS"
-- DO NOT return the hierarchical fullname path
-- The value must exactly match one of the 'name' values in available_support_groups list
-
-IMPORTANT: Return ONLY valid JSON with these exact keys. The explanation should be detailed but concise, focusing on actionable insights that relate to the ticket's nature and historical resolution patterns. Reference the support group's description in your explanation to justify why they are the best fit for this ticket.
+**CRITICAL**: 
+- Use EXACT 'name' field values only
+- If uncertain, return "Validation" instead of guessing
+- Location-specific groups take precedence for location-based issues
+- Global groups take precedence for technical/application issues
 """,
 }

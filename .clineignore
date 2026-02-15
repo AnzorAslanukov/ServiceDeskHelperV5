@@ -1,5 +1,8 @@
 ir_embeddings.jsonl
 __init__.py
+support_group_description.json
+support_group_keywords.json
+locations.json
 
 /__pycache__/
 /services/__pycache__/

@@ -384,3 +384,114 @@ body {
 .accordion-header .clipboard-btn:hover {
   z-index: 11;
 }
+
+/* Support Group Selector - Three-way toggle */
+.support-group-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.support-group-selector-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 0.25rem;
+}
+
+.support-group-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.support-group-option {
+  flex: 1;
+  min-width: 120px;
+  max-width: 200px;
+}
+
+.support-group-option input[type="radio"] {
+  display: none;
+}
+
+.support-group-option label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--border-color);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  text-align: center;
+}
+
+.support-group-option label:hover {
+  border-color: #007bff;
+  background-color: rgba(0, 123, 255, 0.05);
+}
+
+.support-group-option input[type="radio"]:checked + label {
+  border-color: #007bff;
+  background-color: rgba(0, 123, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+}
+
+.support-group-option .option-rank {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+  color: #6c757d;
+}
+
+.support-group-option input[type="radio"]:checked + label .option-rank {
+  color: #007bff;
+}
+
+.support-group-option .option-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+/* Priority badge in recommendations */
+.recommendation-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Dark mode support for selector */
+[data-bs-theme="dark"] .support-group-option label:hover {
+  border-color: #0d6efd;
+  background-color: rgba(13, 110, 253, 0.1);
+}
+
+[data-bs-theme="dark"] .support-group-option input[type="radio"]:checked + label {
+  border-color: #0d6efd;
+  background-color: rgba(13, 110, 253, 0.2);
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.35);
+}
+
+[data-bs-theme="dark"] .support-group-option input[type="radio"]:checked + label .option-rank {
+  color: #6ea8fe;
+}
+
+/* Batch mode compact selector */
+.support-group-selector-compact .support-group-options {
+  gap: 0.25rem;
+}
+
+.support-group-selector-compact .support-group-option label {
+  padding: 0.5rem 0.75rem;
+}
+
+.support-group-selector-compact .support-group-option .option-name {
+  font-size: 0.8rem;
+}
