@@ -262,7 +262,7 @@ function handleSingleTicketAssignment(ticketId, searchButton) {
     // Display OneNote documentation
     if (data.onenote_documentation && data.onenote_documentation.length > 0) {
       const container = ensureContentArea();
-      container.innerHTML += '<div class="mt-5 pt-4 border-top text-start"><h4>OneNote Documentation Referenced</h4></div>';
+      // container.innerHTML += '<div class="mt-5 pt-4 border-top text-start"><h4>OneNote Documentation Referenced</h4></div>';
       TicketRenderer.renderOnenoteDocuments(data.onenote_documentation);
     }
 
