@@ -547,29 +547,30 @@ async function handleImplementAssignment() {
     const selectedSGRadio = recommendationsContainer.querySelector(`input[name="${sgRadioName}"]:checked`);
     const selectedSupportGroup = selectedSGRadio ? selectedSGRadio.value : null;
 
-    // Get the selected priority from the priority radio buttons (name starts with priority-selector-batch)
-    const priorityRadioName = `priority-selector-batch-${ticket.index}`;
-    const selectedPriorityRadio = recommendationsContainer.querySelector(`input[name="${priorityRadioName}"]:checked`);
-    const selectedPriority = selectedPriorityRadio ? selectedPriorityRadio.value : null;
+								// Get the selected priority from the priority radio buttons (name starts with priority-selector-batch)
+								const priorityRadioName = `priority-selector-batch-${ticket.index}`;
+								const selectedPriorityRadio = recommendationsContainer.querySelector(`input[name="${priorityRadioName}"]:checked`);
+								const selectedPriority = selectedPriorityRadio ? selectedPriorityRadio.value : null;
 
-    // Convert priority string to numeric value for Athena API
-    // High = 1, Medium = 2, Low = 3 (or whatever mapping is appropriate)
-    let priorityValue = null;
-    if (selectedPriority) {
-      switch (selectedPriority) {
-        case 'High':
-          priorityValue = 1;
-          break;
-        case 'Medium':
-          priorityValue = 2;
-          break;
-        case 'Low':
-          priorityValue = 3;
-          break;
-        default:
-          priorityValue = null;
-      }
-    }
+								// Convert priority string to numeric value for Athena API
+								// P1 is excluded from automatic assignment (only users can assign P1)
+								// High = P2 (2), Medium/Low = P3 (3)
+								let priorityValue = null;
+								if (selectedPriority) {
+									switch (selectedPriority) {
+										case 'High':
+											priorityValue = 2; // P2
+											break;
+										case 'Medium':
+											priorityValue = 3; // P3
+											break;
+										case 'Low':
+											priorityValue = 3; // P3
+											break;
+										default:
+											priorityValue = null;
+									}
+								}
 
     if (selectedSupportGroup && selectedSupportGroup !== 'N/A') {
       assignments.push({

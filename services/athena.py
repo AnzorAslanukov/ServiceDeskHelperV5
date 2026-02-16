@@ -352,9 +352,10 @@ class Athena:
 
         return all_ticket_numbers
 
-    def modify_ticket(self, ticket_id=None, username=None, priority=None, comment=None, support_group=None):
+    def modify_ticket(self, ticket_id=None, username=None, priority=None, comment=None, support_group=None, status=None, resolution_comment=None):
         """
-        Modifies the specified ticket fields: assigns to a user, updates priority, adds comment, and/or updates support group.
+        Modifies the specified ticket fields: assigns to a user, updates priority, adds comment, updates support group,
+        and/or resolves the ticket with a resolution comment.
         Fields set to None will remain unchanged in the ticketing system.
 
         Args:
@@ -363,6 +364,8 @@ class Athena:
             priority (int, optional): Priority level to set (1-3, where 1 is highest, default: None, leave unchanged)
             comment (str, optional): Comment to add to the ticket (default: None, no comment)
             support_group (str, optional): Support group name to assign the ticket to (default: None, leave unchanged)
+            status (str, optional): Status to set, e.g., 'resolved' to close the ticket (default: None, leave unchanged)
+            resolution_comment (str, optional): Resolution comment when closing the ticket (default: None, required if status is 'resolved')
         """
         if not ticket_id:
             self.output.add_line("ticket_id is required")
@@ -467,7 +470,7 @@ class Athena:
                 self.output.add_line(f"Successfully updated priority for ticket {ticket_id}")
 
         # Add comment if provided
-        if comment:
+        if comment and not status:  # Normal comment, not a resolution
             comment_url = f"{self.base_url}/v1/workitem/{entity_id}/comment"
             comment_payload = {
                 "comment": comment,
@@ -480,6 +483,41 @@ class Athena:
                 self.output.add_line(f"Successfully added comment to ticket {ticket_id}")
             else:
                 self.output.add_line(f"Failed to add comment: {comment_response.status_code} - {comment_response.text}")
+
+        # Handle ticket resolution/closure with resolution comment
+        if status and status.lower() == 'resolved':
+            if not resolution_comment:
+                self.output.add_line("resolution_comment is required when resolving a ticket")
+                return
+            
+            # Resolve the ticket using the comment endpoint with specific format
+            resolve_url = f"{self.base_url}/v1/workitem/{entity_id}/comment"
+            resolve_payload = {
+                "comment": resolution_comment,
+                "sendAsEmail": False,
+                "isPrivate": False,
+                "entityId": entity_id,
+                "resolution": {
+                    "status": "resolved",
+                    "resolution": resolution_comment
+                }
+            }
+            
+            resolve_response = requests.post(resolve_url, headers=headers, json=resolve_payload, timeout=30)
+            if resolve_response.status_code == 200:
+                self.output.add_line(f"Successfully resolved ticket {ticket_id}")
+            else:
+                # Fallback: Try to add comment anyway and log the resolution attempt
+                self.output.add_line(f"Resolution attempt completed with status {resolve_response.status_code}")
+                # Add a normal comment with the resolution text as fallback
+                fallback_comment_url = f"{self.base_url}/v1/workitem/{entity_id}/comment"
+                fallback_payload = {
+                    "comment": f"Ticket resolution requested: {resolution_comment}",
+                    "sendAsEmail": False,
+                    "isPrivate": False,
+                    "entityId": entity_id
+                }
+                requests.post(fallback_comment_url, headers=headers, json=fallback_payload, timeout=30)
 
         # Retrieve and display updated ticket details
         self.get_ticket_data(ticket_id)

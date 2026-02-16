@@ -145,6 +145,7 @@ class TicketRenderer {
           </div>
         </div>
       </div>
+      <div id="priority-legend-container" class="d-none mb-3"></div>
       <div class="accordion" id="${CONSTANTS.SELECTORS.VALIDATION_ACCORDION}"></div>
     `;
 
@@ -504,6 +505,64 @@ class TicketRenderer {
   }
 
   /**
+   * Render the priority selector legend showing High/Medium/Low to P2/P3 mapping
+   * Note: P1 is excluded from automatic assignment (only users can assign P1)
+   * @returns {string} HTML string for the legend
+   * @private
+   */
+  static _renderPriorityLegend() {
+    return `
+      <div class="priority-legend">
+        <div class="priority-legend-item">
+          <span class="priority-legend-badge high">High</span>
+          <span class="priority-legend-text">= P2</span>
+        </div>
+        <div class="priority-legend-item">
+          <span class="priority-legend-badge medium">Medium</span>
+          <span class="priority-legend-text">= P3</span>
+        </div>
+        <div class="priority-legend-item">
+          <span class="priority-legend-badge low">Low</span>
+          <span class="priority-legend-text">= P3</span>
+        </div>
+        <div class="priority-legend-note">
+          <i class="bi bi-info-circle me-1"></i>P1 is excluded from automatic assignment (only users can assign P1)
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Show the priority legend at the page level (above all accordions)
+   * Called when the first recommendation is received
+   * @private
+   */
+  static _showPageLevelPriorityLegend() {
+    const legendContainer = document.getElementById('priority-legend-container');
+    if (legendContainer) {
+      legendContainer.innerHTML = this._renderPriorityLegend();
+      legendContainer.classList.remove('d-none');
+      debugLog('[RENDERER] - Priority legend displayed at page level');
+    }
+  }
+
+  /**
+   * Render maintenance notification for facilities tickets
+   * @returns {string} HTML string for the maintenance notification
+   * @private
+   */
+  static _renderMaintenanceNotification() {
+    return `
+      <div class="alert alert-warning mb-3">
+        <h6 class="alert-heading"><i class="bi bi-exclamation-triangle me-2"></i>Maintenance Issue Detected</h6>
+        <p class="mb-0">This ticket is a <strong>maintenance/facilities issue</strong> and will need to be closed with a resolution comment.</p>
+        <hr class="my-2">
+        <p class="mb-0 text-muted"><em>Resolution comment will be added automatically.</em></p>
+      </div>
+    `;
+  }
+
+  /**
    * Render batch recommendations for a specific ticket
    * @param {Object} data - Recommendations data
    * @param {number} ticketIndex - Index of the ticket
@@ -523,42 +582,83 @@ class TicketRenderer {
     if (data.error) {
       html += getAlertHTML(`<h6>AI Analysis Error</h6><p>${data.error}</p>`, 'danger');
     } else {
-      // Use compact selectors for batch mode
-      const sgSelectorId = `sg-selector-batch-${ticketIndex}`;
-      const sgSelectorHtml = this._renderSupportGroupSelectorCompact(data, sgSelectorId);
+      // Check if this is a facilities/maintenance ticket
+      const isFacilitiesTicket = data.recommended_support_group === 'facilities' || 
+                                 data.recommended_support_group?.toLowerCase() === 'facilities';
       
-      const prioritySelectorId = `priority-selector-batch-${ticketIndex}`;
-      const prioritySelectorHtml = this._renderPrioritySelector(data.recommended_priority_level, prioritySelectorId);
-      
-      html += `
-        <div class="card mt-3">
-          <div class="card-header">
-            <h6 class="card-title mb-0">AI Recommendations</h6>
-          </div>
-          <div class="card-body">
-            <div class="row">
-              <div class="col-md-6">
-                ${sgSelectorHtml}
-                <div class="mt-2">
-                  ${prioritySelectorHtml}
-                </div>
+      if (isFacilitiesTicket) {
+        // Show maintenance notification for facilities tickets
+        // Show priority legend at page level for first ticket (even for facilities)
+        if (ticketIndex === 0) {
+          this._showPageLevelPriorityLegend();
+        }
+        
+        // Store the resolution comment in a data attribute for later use
+        container.dataset.resolutionComment = "This is not an IT issue. Please contact your building's maintenance department.";
+        container.dataset.isFacilitiesTicket = 'true';
+        
+        html += `
+          <div class="card mt-3">
+            <div class="card-header bg-warning">
+              <h6 class="card-title mb-0"><i class="bi bi-building me-2"></i>Facilities Ticket</h6>
+            </div>
+            <div class="card-body">
+              ${this._renderMaintenanceNotification()}
+              <div class="alert alert-info mb-0">
+                <p class="mb-0"><strong>Resolution:</strong> This is not an IT issue. Please contact your building's maintenance department.</p>
               </div>
-              <div class="col-md-6">
+              <div class="mt-3">
                 <p><strong>Analysis:</strong></p>
-                <div class="border-start border-primary border-2 ps-2">
+                <div class="border-start border-warning border-2 ps-2">
                   <div id="batch-explanation-${ticketIndex}"></div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      `;
+        `;
+      } else {
+        // Regular ticket recommendation
+        const sgSelectorId = `sg-selector-batch-${ticketIndex}`;
+        const sgSelectorHtml = this._renderSupportGroupSelectorCompact(data, sgSelectorId);
+        
+        const prioritySelectorId = `priority-selector-batch-${ticketIndex}`;
+        const prioritySelectorHtml = this._renderPrioritySelector(data.recommended_priority_level, prioritySelectorId);
+        
+        // Show priority legend at page level for first ticket
+        if (ticketIndex === 0) {
+          this._showPageLevelPriorityLegend();
+        }
+        
+        html += `
+          <div class="card mt-3">
+            <div class="card-header">
+              <h6 class="card-title mb-0">AI Recommendations</h6>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-6">
+                  ${sgSelectorHtml}
+                  <div class="mt-2">
+                    ${prioritySelectorHtml}
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <p><strong>Analysis:</strong></p>
+                  <div class="border-start border-primary border-2 ps-2">
+                    <div id="batch-explanation-${ticketIndex}"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
     }
 
     container.innerHTML = html;
     container.style.display = 'block';
 
-    // Process Markdown formatting for the explanation
+    // Process Markdown formatting for the explanation (if present)
     const explanationContainer = container.querySelector(`#batch-explanation-${ticketIndex}`);
     if (explanationContainer) {
       ExplanationRenderer.render(

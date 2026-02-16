@@ -310,6 +310,27 @@
     ]
   },
   {
+    "name": "Account Provisioning",
+    "keywords": [
+      "User Provisioning",
+      "Manages",
+      "User",
+      "Account",
+      "Creation",
+      "Access",
+      "Provisioning",
+      "Password",
+      "Resets",
+      "Permissions",
+      "Changes",
+      "Modifications",
+      "Pennchart",
+      "Clinical",
+      "Application",
+      "System"
+    ]
+  },
+  {
     "name": "Professional Billing (Resolute PB)",
     "keywords": [
       "Epic",
@@ -892,6 +913,27 @@
       "Censitrac",
       "enterprise",
       "applications"
+    ]
+  },
+  {
+    "name": "User Provisioning",
+    "keywords": [
+      "User Provisioning",
+      "Manages",
+      "User",
+      "Account",
+      "Creation",
+      "Access",
+      "Provisioning",
+      "Password",
+      "Resets",
+      "Permissions",
+      "Changes",
+      "Modifications",
+      "Pennchart",
+      "Clinical",
+      "Application",
+      "System"
     ]
   },
   {

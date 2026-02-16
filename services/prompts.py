@@ -74,10 +74,15 @@ These support groups have broader expertise and may be relevant based on ticket 
 - If ticket contains "LGH" → ONLY consider groups with "LGH" in the name
 - Do NOT assign non-LGH groups to LGH tickets
 
+#### MAINTENANCE ISSUES
+- If ticket describes an issue that is not information technology related, then recommended_support_group needs to be assigned value "facilities"
+- Examples may include, but are not limited to plumbing issues, broken fixtures, broken furniture and electrical issues
+- Cabling issues related to networking are still considered information technology problems 
+
 ### 6. PRIORITY ASSESSMENT
-- **HIGH**: Critical systems down, patient care impacted, urgent deadlines
+- **HIGH**: Hospital-wide critical systems down, patient care impacted
 - **MEDIUM**: Important but not critical, workarounds available
-- **LOW**: Non-urgent, minimal impact
+- **LOW**: Non-urgent, minimal impact most common ticket priority level
 
 ## LOCATION-BASED GROUP MAPPING
 
