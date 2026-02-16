@@ -433,6 +433,58 @@ class TicketRenderer {
   }
 
   /**
+   * Render the priority selector (High/Medium/Low) with AI recommendation pre-selected
+   * @param {string} recommendedPriority - The AI recommended priority level (High/Medium/Low)
+   * @param {string} selectorId - Unique ID for this selector instance
+   * @returns {string} HTML string for the selector
+   * @private
+   */
+  static _renderPrioritySelector(recommendedPriority, selectorId) {
+    // Normalize the recommended priority to ensure valid values
+    const normalizedPriority = ['High', 'Medium', 'Low'].includes(recommendedPriority) 
+      ? recommendedPriority 
+      : 'Medium';
+
+    const priorities = ['High', 'Medium', 'Low'];
+    
+    let html = `
+      <div class="priority-selector priority-selector-compact">
+        <span class="priority-selector-label">Select Priority:</span>
+        <div class="priority-options">
+    `;
+
+    priorities.forEach((priority) => {
+      const isChecked = priority === normalizedPriority ? 'checked' : '';
+      const priorityClass = priority.toLowerCase();
+      html += `
+          <div class="priority-option">
+            <input type="radio" id="${selectorId}-${priority}" name="${selectorId}" value="${priority}" ${isChecked}>
+            <label for="${selectorId}-${priority}" class="priority-${priorityClass}">
+              <span class="priority-name">${priority}</span>
+            </label>
+          </div>
+        `;
+    });
+
+    html += `
+        </div>
+      </div>
+    `;
+
+    return html;
+  }
+
+  /**
+   * Get the selected priority from a priority selector
+   * @param {string} selectorId - The ID of the selector
+   * @returns {string|null} The selected priority (High/Medium/Low), or null if not found
+   */
+  static getSelectedPriority(selectorId) {
+    const selectedRadio = document.querySelector(`input[name="${selectorId}"]:checked`);
+    return selectedRadio ? selectedRadio.value : null;
+  }
+
+  /**
    * Get the selected support group from a selector
    * @param {string} selectorId - The ID of the selector (or container element for batch mode)
    * @param {boolean} [isBatch=false] - Whether this is for batch mode
@@ -471,9 +523,12 @@ class TicketRenderer {
     if (data.error) {
       html += getAlertHTML(`<h6>AI Analysis Error</h6><p>${data.error}</p>`, 'danger');
     } else {
-      // Use compact selector for batch mode
-      const selectorId = `sg-selector-batch-${ticketIndex}`;
-      const selectorHtml = this._renderSupportGroupSelectorCompact(data, selectorId);
+      // Use compact selectors for batch mode
+      const sgSelectorId = `sg-selector-batch-${ticketIndex}`;
+      const sgSelectorHtml = this._renderSupportGroupSelectorCompact(data, sgSelectorId);
+      
+      const prioritySelectorId = `priority-selector-batch-${ticketIndex}`;
+      const prioritySelectorHtml = this._renderPrioritySelector(data.recommended_priority_level, prioritySelectorId);
       
       html += `
         <div class="card mt-3">
@@ -483,8 +538,10 @@ class TicketRenderer {
           <div class="card-body">
             <div class="row">
               <div class="col-md-6">
-                ${selectorHtml}
-                <p class="mt-2"><strong>Priority:</strong> <span class="text-warning">${data.recommended_priority_level || 'N/A'}</span></p>
+                ${sgSelectorHtml}
+                <div class="mt-2">
+                  ${prioritySelectorHtml}
+                </div>
               </div>
               <div class="col-md-6">
                 <p><strong>Analysis:</strong></p>

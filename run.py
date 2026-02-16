@@ -1149,5 +1149,5 @@ def api_implement_assignments():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True)
-    # get_ticket_advice("SR10254820")
+    # app.run(host='0.0.0.0', debug=True)
+    get_ticket_advice("IR10256351")

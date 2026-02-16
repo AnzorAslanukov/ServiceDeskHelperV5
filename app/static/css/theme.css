@@ -495,3 +495,159 @@ body {
 .support-group-selector-compact .support-group-option .option-name {
   font-size: 0.8rem;
 }
+
+/* Priority Selector - Three-way toggle */
+.priority-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.priority-selector-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 0.25rem;
+}
+
+.priority-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.priority-option {
+  flex: 1;
+  min-width: 80px;
+  max-width: 100px;
+}
+
+.priority-option input[type="radio"] {
+  display: none;
+}
+
+.priority-option label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--border-color);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.priority-option label:hover {
+  border-color: #007bff;
+  background-color: rgba(0, 123, 255, 0.05);
+}
+
+.priority-option input[type="radio"]:checked + label {
+  border-color: #007bff;
+  background-color: rgba(0, 123, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+}
+
+/* Priority-specific colors */
+.priority-option label.priority-high {
+  border-color: #dc3545;
+}
+
+.priority-option label.priority-high:hover {
+  border-color: #dc3545;
+  background-color: rgba(220, 53, 69, 0.05);
+}
+
+.priority-option input[type="radio"]:checked + label.priority-high {
+  border-color: #dc3545;
+  background-color: rgba(220, 53, 69, 0.15);
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.25);
+  color: #dc3545;
+}
+
+.priority-option label.priority-medium {
+  border-color: #ffc107;
+}
+
+.priority-option label.priority-medium:hover {
+  border-color: #ffc107;
+  background-color: rgba(255, 193, 7, 0.05);
+}
+
+.priority-option input[type="radio"]:checked + label.priority-medium {
+  border-color: #ffc107;
+  background-color: rgba(255, 193, 7, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.25);
+  color: #ffc107;
+}
+
+.priority-option label.priority-low {
+  border-color: #28a745;
+}
+
+.priority-option label.priority-low:hover {
+  border-color: #28a745;
+  background-color: rgba(40, 167, 69, 0.05);
+}
+
+.priority-option input[type="radio"]:checked + label.priority-low {
+  border-color: #28a745;
+  background-color: rgba(40, 167, 69, 0.15);
+  box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.25);
+  color: #28a745;
+}
+
+/* Compact priority selector */
+.priority-selector-compact .priority-options {
+  gap: 0.25rem;
+}
+
+.priority-selector-compact .priority-option {
+  min-width: 60px;
+  max-width: 80px;
+}
+
+.priority-selector-compact .priority-option label {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+/* Dark mode support for priority selector */
+[data-bs-theme="dark"] .priority-option label:hover {
+  opacity: 0.9;
+}
+
+[data-bs-theme="dark"] .priority-option label.priority-high:hover {
+  background-color: rgba(220, 53, 69, 0.1);
+}
+
+[data-bs-theme="dark"] .priority-option input[type="radio"]:checked + label.priority-high {
+  background-color: rgba(220, 53, 69, 0.25);
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.35);
+  color: #f5c2c7;
+}
+
+[data-bs-theme="dark"] .priority-option label.priority-medium:hover {
+  background-color: rgba(255, 193, 7, 0.1);
+}
+
+[data-bs-theme="dark"] .priority-option input[type="radio"]:checked + label.priority-medium {
+  background-color: rgba(255, 193, 7, 0.25);
+  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.35);
+  color: #ffe69c;
+}
+
+[data-bs-theme="dark"] .priority-option label.priority-low:hover {
+  background-color: rgba(40, 167, 69, 0.1);
+}
+
+[data-bs-theme="dark"] .priority-option input[type="radio"]:checked + label.priority-low {
+  background-color: rgba(40, 167, 69, 0.25);
+  box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.35);
+  color: #badbcc;
+}

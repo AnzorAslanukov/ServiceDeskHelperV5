@@ -517,6 +517,7 @@ async function handleGetRecommendations() {
  * Handle implement ticket assignment button click
  * Implements assignments for selected tickets using AI recommendations
  * Uses the user-selected support group from the three-way selector
+ * Uses the user-selected priority from the three-way priority selector
  */
 async function handleImplementAssignment() {
   debugLog('[MAIN] - Implement ticket assignment clicked');
@@ -529,7 +530,7 @@ async function handleImplementAssignment() {
     return;
   }
 
-  // Get recommendations container for each ticket to read the selected support group
+  // Get recommendations container for each ticket to read the selected support group and priority
   const assignments = [];
   const ticketsWithoutRecommendations = [];
 
@@ -541,21 +542,40 @@ async function handleImplementAssignment() {
       continue;
     }
 
-    // Get the selected support group from the radio buttons in the container
-    const selectedRadio = recommendationsContainer.querySelector('input[type="radio"]:checked');
-    const selectedSupportGroup = selectedRadio ? selectedRadio.value : null;
+    // Get the selected support group from the support group radio buttons (name starts with sg-selector-batch)
+    const sgRadioName = `sg-selector-batch-${ticket.index}`;
+    const selectedSGRadio = recommendationsContainer.querySelector(`input[name="${sgRadioName}"]:checked`);
+    const selectedSupportGroup = selectedSGRadio ? selectedSGRadio.value : null;
 
-    // Get priority from stored recommendation data
-    const recommendationData = TicketRenderer.getRecommendationData(ticket.index);
-    const priority = recommendationData && recommendationData.recommended_priority_level !== 'N/A'
-      ? parseInt(recommendationData.recommended_priority_level) 
-      : null;
+    // Get the selected priority from the priority radio buttons (name starts with priority-selector-batch)
+    const priorityRadioName = `priority-selector-batch-${ticket.index}`;
+    const selectedPriorityRadio = recommendationsContainer.querySelector(`input[name="${priorityRadioName}"]:checked`);
+    const selectedPriority = selectedPriorityRadio ? selectedPriorityRadio.value : null;
+
+    // Convert priority string to numeric value for Athena API
+    // High = 1, Medium = 2, Low = 3 (or whatever mapping is appropriate)
+    let priorityValue = null;
+    if (selectedPriority) {
+      switch (selectedPriority) {
+        case 'High':
+          priorityValue = 1;
+          break;
+        case 'Medium':
+          priorityValue = 2;
+          break;
+        case 'Low':
+          priorityValue = 3;
+          break;
+        default:
+          priorityValue = null;
+      }
+    }
 
     if (selectedSupportGroup && selectedSupportGroup !== 'N/A') {
       assignments.push({
         ticket_id: ticket.id,
         support_group: selectedSupportGroup,
-        priority: priority
+        priority: priorityValue
       });
     } else {
       ticketsWithoutRecommendations.push(ticket.id);
