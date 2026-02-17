@@ -78,6 +78,7 @@ These support groups have broader expertise and may be relevant based on ticket 
 - If ticket describes an issue that is not information technology related, then recommended_support_group needs to be assigned value "facilities"
 - Examples may include, but are not limited to plumbing issues, broken fixtures, broken furniture and electrical issues
 - Cabling issues related to networking are still considered information technology problems 
+- Problems with phones and printers are all considered information technology issues 
 
 ### 6. PRIORITY ASSESSMENT
 - **HIGH**: Hospital-wide critical systems down, patient care impacted

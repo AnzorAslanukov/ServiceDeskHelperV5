@@ -542,35 +542,49 @@ async function handleImplementAssignment() {
       continue;
     }
 
+    // Check if this is a facilities/maintenance ticket
+    const isFacilitiesTicket = recommendationsContainer.dataset.isFacilitiesTicket === 'true';
+    const resolutionComment = recommendationsContainer.dataset.resolutionComment;
+
+    if (isFacilitiesTicket && resolutionComment) {
+      // Facilities ticket - resolve with resolution comment
+      assignments.push({
+        ticket_id: ticket.id,
+        status: 'resolved',
+        resolution_comment: resolutionComment
+      });
+      continue;
+    }
+
     // Get the selected support group from the support group radio buttons (name starts with sg-selector-batch)
     const sgRadioName = `sg-selector-batch-${ticket.index}`;
     const selectedSGRadio = recommendationsContainer.querySelector(`input[name="${sgRadioName}"]:checked`);
     const selectedSupportGroup = selectedSGRadio ? selectedSGRadio.value : null;
 
-								// Get the selected priority from the priority radio buttons (name starts with priority-selector-batch)
-								const priorityRadioName = `priority-selector-batch-${ticket.index}`;
-								const selectedPriorityRadio = recommendationsContainer.querySelector(`input[name="${priorityRadioName}"]:checked`);
-								const selectedPriority = selectedPriorityRadio ? selectedPriorityRadio.value : null;
+    // Get the selected priority from the priority radio buttons (name starts with priority-selector-batch)
+    const priorityRadioName = `priority-selector-batch-${ticket.index}`;
+    const selectedPriorityRadio = recommendationsContainer.querySelector(`input[name="${priorityRadioName}"]:checked`);
+    const selectedPriority = selectedPriorityRadio ? selectedPriorityRadio.value : null;
 
-								// Convert priority string to numeric value for Athena API
-								// P1 is excluded from automatic assignment (only users can assign P1)
-								// High = P2 (2), Medium/Low = P3 (3)
-								let priorityValue = null;
-								if (selectedPriority) {
-									switch (selectedPriority) {
-										case 'High':
-											priorityValue = 2; // P2
-											break;
-										case 'Medium':
-											priorityValue = 3; // P3
-											break;
-										case 'Low':
-											priorityValue = 3; // P3
-											break;
-										default:
-											priorityValue = null;
-									}
-								}
+    // Convert priority string to numeric value for Athena API
+    // P1 is excluded from automatic assignment (only users can assign P1)
+    // High = P2 (2), Medium/Low = P3 (3)
+    let priorityValue = null;
+    if (selectedPriority) {
+      switch (selectedPriority) {
+        case 'High':
+          priorityValue = 2; // P2
+          break;
+        case 'Medium':
+          priorityValue = 3; // P3
+          break;
+        case 'Low':
+          priorityValue = 3; // P3
+          break;
+        default:
+          priorityValue = null;
+      }
+    }
 
     if (selectedSupportGroup && selectedSupportGroup !== 'N/A') {
       assignments.push({
