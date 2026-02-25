@@ -10,6 +10,7 @@ from services.text_generation_model import TextGenerationModel
 from services.keyword_match import KeywordMatch
 from services.prompts import PROMPTS
 from services.field_mapping import FieldMapper
+from services.config import load_environment
 
 # Add current directory to path for imports when running as script
 sys.path.insert(0, os.path.dirname(__file__))

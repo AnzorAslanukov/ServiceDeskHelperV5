@@ -1,8 +1,8 @@
 import requests
 import json
 import os
-from dotenv import load_dotenv
 from typing import Union
+from services.config import load_environment
 
 # Add current directory to path for imports when running as script
 import sys
@@ -13,7 +13,7 @@ from parse_json import ParseJson
 from field_mapping import FieldMapper
 from embedding_model import EmbeddingModel
 
-load_dotenv()
+# Environment variables are loaded via services.config
 
 DEBUG = True  # Global debug setting for print statements
 TEST_RUN = True  # Set to True to enable the test section when running the file 
