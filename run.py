@@ -1176,12 +1176,15 @@ def debug_route():
         'registered_routes': [str(rule) for rule in app.url_map.iter_rules() if rule.rule.startswith('/api')]
     })
 
-# Test POST endpoint
-@app.route('/api/test-post', methods=['POST'])
+# Test POST endpoint - accepts both GET and POST
+@app.route('/api/test-post', methods=['GET', 'POST'])
 def test_post():
     """Test POST endpoint"""
-    data = request.get_json()
-    return jsonify({'status': 'ok', 'received': data})
+    if request.method == 'POST':
+        data = request.get_json()
+        return jsonify({'status': 'ok', 'received': data, 'method': 'POST'})
+    else:
+        return jsonify({'status': 'ok', 'message': 'GET works, try POST', 'method': 'GET'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
