@@ -1149,6 +1149,33 @@ def api_implement_assignments():
         return jsonify({'error': error_msg}), 500
 
 
+# Debug route to test if Flask is working properly
+@app.route('/api/debug', methods=['GET'])
+def debug_route():
+    """Debug route to verify Flask is working"""
+    import os
+    from services.config import load_environment
+    
+    # Check if environment variables are loaded
+    env_vars = {
+        'DATABRICKS_API_KEY': os.getenv('DATABRICKS_API_KEY'),
+        'DATABRICKS_SERVER_HOSTNAME': os.getenv('DATABRICKS_SERVER_HOSTNAME'),
+        'ATHENA_USERNAME': os.getenv('ATHENA_USERNAME'),
+    }
+    
+    # Mask sensitive values
+    for key in env_vars:
+        if env_vars[key]:
+            env_vars[key] = env_vars[key][:10] + '***' if len(env_vars[key]) > 10 else '***'
+    
+    return jsonify({
+        'status': 'ok',
+        'message': 'Flask is working!',
+        'environment_loaded': bool(os.getenv('DATABRICKS_API_KEY')),
+        'env_vars': env_vars,
+        'registered_routes': [str(rule) for rule in app.url_map.iter_rules() if rule.rule.startswith('/api')]
+    })
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
     # get_ticket_advice("IR10256351")
