@@ -1176,6 +1176,13 @@ def debug_route():
         'registered_routes': [str(rule) for rule in app.url_map.iter_rules() if rule.rule.startswith('/api')]
     })
 
+# Test POST endpoint
+@app.route('/api/test-post', methods=['POST'])
+def test_post():
+    """Test POST endpoint"""
+    data = request.get_json()
+    return jsonify({'status': 'ok', 'received': data})
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
     # get_ticket_advice("IR10256351")
