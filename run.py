@@ -567,6 +567,7 @@ def get_ticket_advice(ticket_number):
         }
 
 @app.route('/api/search-tickets', methods=['POST'])
+@app.route('/api/search-tickets/', methods=['POST'])  # Also accept trailing slash
 def search_tickets():
     data = request.get_json()
     
