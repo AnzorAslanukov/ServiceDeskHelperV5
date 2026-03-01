@@ -1,7 +1,7 @@
 import requests
 import json
 import os
-from services.config import load_environment
+from dotenv import load_dotenv
 from typing import List, Dict
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from output import Output
 
-# Environment variables are loaded via services.config
+load_dotenv()
 
 DEBUG = True  # Global debug setting for print statements
 TEST_RUN = False  # Set to True to enable test section when running the file

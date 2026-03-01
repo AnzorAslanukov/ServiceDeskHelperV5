@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import re
-from services.config import load_environment
+from dotenv import load_dotenv
 
 # Add current directory to path for imports when running as script
 sys.path.insert(0, os.path.dirname(__file__))
@@ -12,7 +12,7 @@ from output import Output
 from parse_json import ParseJson
 from field_mapping import FieldMapper
 
-# Environment variables are loaded via services.config
+load_dotenv()
 
 DEBUG = True  # Global debug setting for print statements 
 TEST_RUN = True  # Set to True to enable the test section when running the file 

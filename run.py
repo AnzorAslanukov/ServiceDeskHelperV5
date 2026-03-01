@@ -10,7 +10,6 @@ from services.text_generation_model import TextGenerationModel
 from services.keyword_match import KeywordMatch
 from services.prompts import PROMPTS
 from services.field_mapping import FieldMapper
-from services.config import load_environment
 
 # Add current directory to path for imports when running as script
 sys.path.insert(0, os.path.dirname(__file__))
@@ -567,7 +566,6 @@ def get_ticket_advice(ticket_number):
         }
 
 @app.route('/api/search-tickets', methods=['POST'])
-@app.route('/api/search-tickets/', methods=['POST'])  # Also accept trailing slash
 def search_tickets():
     data = request.get_json()
     
@@ -1149,43 +1147,6 @@ def api_implement_assignments():
             output.add_line(error_msg)
         return jsonify({'error': error_msg}), 500
 
-
-# Debug route to test if Flask is working properly
-@app.route('/api/debug', methods=['GET'])
-def debug_route():
-    """Debug route to verify Flask is working"""
-    import os
-    from services.config import load_environment
-    
-    # Check if environment variables are loaded
-    env_vars = {
-        'DATABRICKS_API_KEY': os.getenv('DATABRICKS_API_KEY'),
-        'DATABRICKS_SERVER_HOSTNAME': os.getenv('DATABRICKS_SERVER_HOSTNAME'),
-        'ATHENA_USERNAME': os.getenv('ATHENA_USERNAME'),
-    }
-    
-    # Mask sensitive values
-    for key in env_vars:
-        if env_vars[key]:
-            env_vars[key] = env_vars[key][:10] + '***' if len(env_vars[key]) > 10 else '***'
-    
-    return jsonify({
-        'status': 'ok',
-        'message': 'Flask is working!',
-        'environment_loaded': bool(os.getenv('DATABRICKS_API_KEY')),
-        'env_vars': env_vars,
-        'registered_routes': [str(rule) for rule in app.url_map.iter_rules() if rule.rule.startswith('/api')]
-    })
-
-# Test POST endpoint - accepts both GET and POST
-@app.route('/api/test-post', methods=['GET', 'POST'])
-def test_post():
-    """Test POST endpoint"""
-    if request.method == 'POST':
-        data = request.get_json()
-        return jsonify({'status': 'ok', 'received': data, 'method': 'POST'})
-    else:
-        return jsonify({'status': 'ok', 'message': 'GET works, try POST', 'method': 'GET'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
