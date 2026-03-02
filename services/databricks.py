@@ -36,6 +36,118 @@ class Databricks:
         if DEBUG:
             self.output.add_line("Databricks client initialized")
 
+    def start_warehouse(self, wait_for_running: bool = False, timeout: int = 300) -> bool:
+        """
+        Start the SQL warehouse so it is ready to accept queries.
+        Safe to call when the warehouse is already running (idempotent).
+
+        Args:
+            wait_for_running (bool): If True, block until the warehouse reaches RUNNING state or timeout.
+            timeout (int): Maximum seconds to wait for the warehouse to reach RUNNING state (default: 300).
+
+        Returns:
+            bool: True if the start request was accepted (and warehouse is RUNNING if wait_for_running=True),
+                  False otherwise.
+        """
+        if not all([self.api_key, self.server_hostname, self.http_path]):
+            if DEBUG:
+                self.output.add_line("start_warehouse: Missing required environment variables")
+            return False
+
+        warehouse_id = self.http_path.split('/')[-1]
+        url = f"https://{self.server_hostname}/api/2.0/sql/warehouses/{warehouse_id}/start"
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        try:
+            if DEBUG:
+                self.output.add_line(f"Starting SQL warehouse {warehouse_id}...")
+            response = requests.post(url, headers=headers, timeout=30)
+
+            # 200 = start accepted, 409 = already running (conflict is fine)
+            if response.status_code in (200, 409):
+                if response.status_code == 409:
+                    if DEBUG:
+                        self.output.add_line(f"SQL warehouse {warehouse_id} is already running")
+                else:
+                    if DEBUG:
+                        self.output.add_line(f"SQL warehouse {warehouse_id} start request accepted")
+
+                if wait_for_running:
+                    return self._wait_for_warehouse_running(warehouse_id, timeout)
+                return True
+            else:
+                if DEBUG:
+                    self.output.add_line(f"Failed to start warehouse (HTTP {response.status_code}): {response.text}")
+                return False
+
+        except requests.exceptions.RequestException as e:
+            if DEBUG:
+                self.output.add_line(f"Network error starting warehouse: {str(e)}")
+            return False
+        except Exception as e:
+            if DEBUG:
+                self.output.add_line(f"Unexpected error starting warehouse: {str(e)}")
+            return False
+
+    def _wait_for_warehouse_running(self, warehouse_id: str, timeout: int = 300) -> bool:
+        """
+        Poll the warehouse status endpoint until the warehouse reaches RUNNING state or timeout.
+
+        Args:
+            warehouse_id (str): The warehouse ID to poll.
+            timeout (int): Maximum seconds to wait.
+
+        Returns:
+            bool: True if warehouse reached RUNNING state, False if timed out or in a terminal non-running state.
+        """
+        import time
+
+        status_url = f"https://{self.server_hostname}/api/2.0/sql/warehouses/{warehouse_id}"
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        start_time = time.time()
+        poll_interval = 5  # seconds between polls
+
+        if DEBUG:
+            self.output.add_line(f"Waiting for warehouse {warehouse_id} to reach RUNNING state (timeout: {timeout}s)...")
+
+        while time.time() - start_time < timeout:
+            try:
+                response = requests.get(status_url, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    state = response.json().get('state', 'UNKNOWN')
+                    if DEBUG:
+                        elapsed = int(time.time() - start_time)
+                        self.output.add_line(f"Warehouse {warehouse_id} state: {state} ({elapsed}s elapsed)")
+
+                    if state == 'RUNNING':
+                        if DEBUG:
+                            self.output.add_line(f"Warehouse {warehouse_id} is now RUNNING")
+                        return True
+                    elif state in ('STOPPED', 'DELETING', 'DELETED'):
+                        if DEBUG:
+                            self.output.add_line(f"Warehouse {warehouse_id} entered terminal state: {state}")
+                        return False
+                    # STARTING state: continue polling
+                else:
+                    if DEBUG:
+                        self.output.add_line(f"Unexpected status poll response (HTTP {response.status_code})")
+            except requests.exceptions.RequestException as e:
+                if DEBUG:
+                    self.output.add_line(f"Network error polling warehouse status: {str(e)}")
+
+            time.sleep(poll_interval)
+
+        if DEBUG:
+            self.output.add_line(f"Timed out waiting for warehouse {warehouse_id} to reach RUNNING state after {timeout}s")
+        return False
+
     def test_api_key_validity(self):
         """
         Test the validity of the Databricks API key by making a simple API call.
@@ -127,7 +239,7 @@ class Databricks:
         payload = {
             "warehouse_id": self.http_path.split('/')[-1],  # Extract warehouse ID from http_path
             "statement": sql_query,
-            "wait_timeout": "30s"  # Wait up to 30 seconds for completion
+            "wait_timeout": "50s"  # Wait up to 50 seconds inline (Databricks maximum)
         }
 
         try:
@@ -136,10 +248,51 @@ class Databricks:
                 self.output.add_line(f"Using warehouse: {payload['warehouse_id']}")
 
             # Submit the SQL statement
-            response = requests.post(execute_url, headers=headers, json=payload, timeout=60)
+            response = requests.post(execute_url, headers=headers, json=payload, timeout=120)
 
             if response.status_code == 200:
                 result_data = response.json()
+
+                # If the warehouse is still starting, the query may come back as PENDING with a
+                # statement_id. Poll the status endpoint until it completes (up to 300 seconds).
+                if result_data.get('status', {}).get('state') == 'PENDING':
+                    import time
+                    statement_id = result_data.get('statement_id')
+                    if not statement_id:
+                        if DEBUG:
+                            self.output.add_line("Query returned PENDING but no statement_id found")
+                        return {"status": "pending", "message": "Query is still running"}
+
+                    status_url = f"https://{self.server_hostname}/api/2.0/sql/statements/{statement_id}"
+                    poll_timeout = 300  # seconds
+                    poll_interval = 5   # seconds between polls
+                    start_time = time.time()
+
+                    if DEBUG:
+                        self.output.add_line(f"Query PENDING (statement_id={statement_id}), polling for completion...")
+
+                    while time.time() - start_time < poll_timeout:
+                        time.sleep(poll_interval)
+                        try:
+                            poll_response = requests.get(status_url, headers=headers, timeout=30)
+                            if poll_response.status_code == 200:
+                                result_data = poll_response.json()
+                                state = result_data.get('status', {}).get('state')
+                                if DEBUG:
+                                    elapsed = int(time.time() - start_time)
+                                    self.output.add_line(f"Poll {elapsed}s: statement state = {state}")
+                                if state in ('SUCCEEDED', 'FAILED', 'CANCELED', 'CLOSED'):
+                                    break
+                            else:
+                                if DEBUG:
+                                    self.output.add_line(f"Poll request failed (HTTP {poll_response.status_code})")
+                        except requests.exceptions.RequestException as poll_err:
+                            if DEBUG:
+                                self.output.add_line(f"Poll network error: {str(poll_err)}")
+                    else:
+                        if DEBUG:
+                            self.output.add_line(f"Timed out polling for statement {statement_id} after {poll_timeout}s")
+                        return {"status": "error", "message": f"Query timed out after {poll_timeout}s"}
 
                 # Check if the query completed successfully
                 if result_data.get('status', {}).get('state') == 'SUCCEEDED':
@@ -201,10 +354,6 @@ class Databricks:
                     if DEBUG:
                         self.output.add_line(f"Query failed: {error_msg}")
                     return {"status": "failed", "error": error_msg}
-                elif result_data.get('status', {}).get('state') == 'PENDING':
-                    if DEBUG:
-                        self.output.add_line("Query is still running - try again later")
-                    return {"status": "pending", "message": "Query is still running"}
                 else:
                     state = result_data.get('status', {}).get('state')
                     if DEBUG:

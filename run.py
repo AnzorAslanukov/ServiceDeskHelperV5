@@ -1148,6 +1148,32 @@ def api_implement_assignments():
         return jsonify({'error': error_msg}), 500
 
 
+def _warm_up_warehouse():
+    """
+    Start the Databricks SQL warehouse in the background at app startup.
+    This ensures the warehouse is running before the first user request arrives,
+    avoiding cold-start delays on methods like similarity_search.
+    """
+    output = Output()
+    try:
+        output.add_line("Warehouse warm-up: initiating SQL warehouse start...")
+        db = Databricks()
+        success = db.start_warehouse(wait_for_running=True, timeout=300)
+        if success:
+            output.add_line("Warehouse warm-up: SQL warehouse is RUNNING and ready")
+        else:
+            output.add_line("Warehouse warm-up: warehouse did not reach RUNNING state within timeout")
+    except Exception as e:
+        output.add_line(f"Warehouse warm-up: unexpected error: {str(e)}")
+
+
 if __name__ == '__main__':
+    import threading
+    # When Flask runs in debug mode it uses a reloader that spawns a child process.
+    # WERKZEUG_RUN_MAIN is set to 'true' only in the child (the actual serving process),
+    # so we start the warm-up thread there to avoid firing it twice.
+    # When debug=False (production), the condition is also satisfied.
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+        threading.Thread(target=_warm_up_warehouse, daemon=True).start()
     app.run(host='0.0.0.0', debug=True)
     # get_ticket_advice("IR10256351")
