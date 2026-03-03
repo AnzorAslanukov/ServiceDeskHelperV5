@@ -75,12 +75,19 @@ async function handleCopy(ticketId, button) {
 }
 
 /**
- * Initialize Bootstrap tooltips on elements
+ * Initialize Bootstrap tooltips on elements.
+ * Disposes any existing instance on each element before creating a new one
+ * to prevent stale tooltip instances that can cause hover unresponsiveness.
  * @param {string} [selector='[data-bs-toggle="tooltip"]'] - CSS selector for tooltip elements
  */
 function initializeTooltips(selector = '[data-bs-toggle="tooltip"]') {
   const tooltipTriggerList = [].slice.call(document.querySelectorAll(selector));
   tooltipTriggerList.forEach(tooltipTriggerEl => {
+    // Dispose any existing instance before creating a new one
+    const existing = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+    if (existing) {
+      existing.dispose();
+    }
     new bootstrap.Tooltip(tooltipTriggerEl);
   });
 }

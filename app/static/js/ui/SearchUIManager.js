@@ -270,12 +270,13 @@ class SearchUIManager {
   show() {
     const searchDiv = document.getElementById(CONSTANTS.SELECTORS.PHONE_TOGGLE)?.closest('.d-flex');
     if (searchDiv) {
+      // Buttons already exist — just make them visible again.
+      // Tooltips were already initialized when the buttons were created;
+      // re-initializing here would accumulate stale instances.
       searchDiv.classList.remove('d-none');
       searchDiv.classList.add('d-flex');
-      // Re-initialize tooltips in case they were lost
-      initializeTooltips('[data-bs-toggle="tooltip"]');
     } else {
-      // Buttons don't exist, recreate them
+      // Buttons don't exist, recreate them (createToggleButtons calls initializeTooltips internally)
       debugLog('[SEARCH_UI] - Search toggle buttons not found, recreating');
       this.createToggleButtons();
       // Re-attach event listeners after recreation

@@ -1172,6 +1172,202 @@ class TicketRenderer {
     debugLog('[RENDERER] - Ticket checkboxes are now hidden and disabled');
   }
 
+  // ─── Real-time queue monitoring helpers ──────────────────────────────────
+
+  /**
+   * Return the set of ticket IDs currently displayed in the validation accordion.
+   * Includes both fully-loaded items and pending (skeleton) items.
+   * @returns {Set<string>}
+   */
+  static getDisplayedTicketIds() {
+    const items = document.querySelectorAll(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} [data-ticket-id]`
+    );
+    const ids = new Set();
+    items.forEach(item => {
+      const id = item.getAttribute('data-ticket-id');
+      if (id) ids.add(id);
+    });
+    return ids;
+  }
+
+  /**
+   * Dim accordion items for tickets that have left the Validation queue.
+   * Adds a "No longer in queue" badge and applies a muted visual style.
+   * @param {string[]} ids - Ticket IDs that have left the queue
+   */
+  static markTicketsLeftQueue(ids) {
+    ids.forEach(ticketId => {
+      const item = document.querySelector(
+        `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} [data-ticket-id="${ticketId}"]`
+      );
+      if (item && !item.classList.contains('ticket-left-queue')) {
+        item.classList.add('ticket-left-queue');
+
+        // Insert badge next to the ticket title text
+        const titleSpan = item.querySelector('.ticket-title');
+        if (titleSpan && !titleSpan.parentElement.querySelector('.left-queue-badge')) {
+          titleSpan.insertAdjacentHTML(
+            'afterend',
+            '<span class="badge bg-secondary ms-2 left-queue-badge">No longer in queue</span>'
+          );
+        }
+        debugLog('[RENDERER] - Marked ticket as left queue:', ticketId);
+      }
+    });
+
+    this._updateValidationTicketCount();
+  }
+
+  /**
+   * Insert a skeleton/pending accordion item for a newly discovered ticket.
+   * The item shows the ticket ID and a loading spinner while full data is fetched.
+   * @param {string} ticketId - The new ticket ID
+   * @param {number} pendingIndex - Unique index assigned to this item
+   */
+  static addPendingTicket(ticketId, pendingIndex) {
+    const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+    if (!accordion) return;
+
+    const html = `
+      <div class="accordion-item ticket-pending" data-ticket-id="${ticketId}" data-ticket-index="${pendingIndex}">
+        <div class="accordion-header d-flex align-items-center py-2 px-3">
+          <span class="spinner-border spinner-border-sm me-2 text-primary flex-shrink-0" role="status"
+                aria-hidden="true"></span>
+          <span class="ticket-title text-muted flex-grow-1">${ticketId} — Loading ticket data...</span>
+          <span class="badge bg-success ms-2">New</span>
+        </div>
+      </div>
+    `;
+    accordion.insertAdjacentHTML('beforeend', html);
+
+    this._updateValidationTicketCount();
+    debugLog('[RENDERER] - Added pending ticket:', ticketId);
+  }
+
+  /**
+   * Replace a pending skeleton item with the fully-loaded accordion item.
+   * @param {string} ticketId - The ticket ID to hydrate
+   * @param {Object} ticketData - Full ticket data returned by the API
+   * @param {number} pendingIndex - The index used when the pending item was created
+   */
+  static hydrateTicket(ticketId, ticketData, pendingIndex) {
+    const pendingItem = document.querySelector(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} [data-ticket-id="${ticketId}"].ticket-pending`
+    );
+    if (!pendingItem) {
+      debugLog('[RENDERER] - Pending item not found for hydration:', ticketId);
+      return;
+    }
+
+    // Build the real accordion item HTML
+    const realHtml = this._renderValidationAccordionItem(ticketData, pendingIndex);
+
+    // Replace the skeleton in-place
+    pendingItem.outerHTML = realHtml;
+
+    // Add a "New" badge to the hydrated item so users can spot it easily
+    const hydratedItem = document.querySelector(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} [data-ticket-id="${ticketId}"]`
+    );
+    if (hydratedItem) {
+      const titleSpan = hydratedItem.querySelector('.ticket-title');
+      if (titleSpan && !hydratedItem.querySelector('.new-ticket-badge')) {
+        titleSpan.insertAdjacentHTML(
+          'afterend',
+          '<span class="badge bg-success ms-2 new-ticket-badge">New</span>'
+        );
+      }
+    }
+
+    initializeTooltips();
+    this._updateValidationTicketCount();
+    debugLog('[RENDERER] - Hydrated ticket:', ticketId);
+  }
+
+  /**
+   * Update (or create) the "Last checked" status element in the validation header.
+   * @param {Date} [timestamp=new Date()] - Time of the last successful poll
+   */
+  static updateLastCheckedTime(timestamp = new Date()) {
+    let statusEl = document.getElementById('validation-last-checked');
+
+    if (!statusEl) {
+      // Attach after the streaming-progress span if it exists
+      const progressSpan = document.getElementById('streaming-progress');
+      if (progressSpan) {
+        statusEl = document.createElement('span');
+        statusEl.id = 'validation-last-checked';
+        statusEl.className = 'text-muted small ms-2';
+        progressSpan.insertAdjacentElement('afterend', statusEl);
+      }
+    }
+
+    if (statusEl) {
+      statusEl.textContent = `· Checked at ${timestamp.toLocaleTimeString()}`;
+    }
+  }
+
+  /**
+   * Refresh the ticket count shown in the validation section header.
+   * Always shows only the number of tickets currently active in the queue
+   * (total displayed minus those that have left the queue).
+   * @private
+   */
+  static _updateValidationTicketCount() {
+    const header = document.querySelector('.main-content h4.mb-0');
+    if (!header) return;
+
+    // Use the direct-child combinator (>) so only the top-level .accordion-item
+    // rows are counted — not nested elements (checkbox, recommendations div, etc.)
+    // that also carry data-ticket-id attributes.
+    const allItems = document.querySelectorAll(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} > .accordion-item[data-ticket-id]`
+    );
+    const leftCount = document.querySelectorAll(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} > .accordion-item.ticket-left-queue`
+    ).length;
+    const activeCount = allItems.length - leftCount;
+
+    header.textContent = `Validation Tickets (${activeCount})`;
+  }
+
+  /**
+   * Create or update the polling countdown element in the validation header.
+   * Displays "· Next check in Xs" next to the last-checked timestamp.
+   * Pass null to hide/remove the countdown (e.g. when polling stops).
+   * @param {number|null} seconds - Seconds remaining until next poll, or null to hide
+   */
+  static updateCountdownDisplay(seconds) {
+    let countdownEl = document.getElementById('validation-poll-countdown');
+
+    if (seconds === null) {
+      // Hide the countdown when polling is inactive
+      if (countdownEl) countdownEl.textContent = '';
+      return;
+    }
+
+    if (!countdownEl) {
+      // Create the element and attach it after the last-checked span
+      const lastCheckedEl = document.getElementById('validation-last-checked');
+      const progressSpan = document.getElementById('streaming-progress');
+      const anchor = lastCheckedEl || progressSpan;
+
+      if (anchor) {
+        countdownEl = document.createElement('span');
+        countdownEl.id = 'validation-poll-countdown';
+        countdownEl.className = 'text-muted small ms-2';
+        anchor.insertAdjacentElement('afterend', countdownEl);
+      }
+    }
+
+    if (countdownEl) {
+      countdownEl.textContent = `· Next check in ${seconds}s`;
+    }
+  }
+
+  // ─── End real-time queue monitoring helpers ───────────────────────────────
+
   /**
    * Render assignment implementation results
    * @param {Object} result - Assignment results from backend

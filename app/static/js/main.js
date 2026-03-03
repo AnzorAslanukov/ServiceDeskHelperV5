@@ -13,6 +13,15 @@ let assignmentUIManager;
 let navigationManager;
 let batchProcessor;
 
+// ─── Validation queue polling state ──────────────────────────────────────────
+let validationPollingInterval = null;
+let validationCountdownInterval = null;
+let validationCountdownSeconds = 0;
+// Counter for unique indices assigned to newly-discovered (pending) tickets.
+// Starting at 10000 keeps them well clear of the initial 0-based stream indices.
+let nextPendingTicketIndex = 10000;
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Initialize the application when DOM is ready
  */
@@ -50,6 +59,7 @@ function initializeManagers() {
   navigationManager.initialize({
     onSwitchToSearch: () => {
       debugLog('[MAIN] - Switched to search mode callback');
+      stopValidationPolling(); // Stop polling when leaving assignment/validation view
     },
     onSwitchToAssignment: () => {
       debugLog('[MAIN] - Switched to assignment mode callback');
@@ -413,6 +423,9 @@ function handleGetValidationTicketsStream() {
     assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
     
     eventSource.close();
+
+    // Start background polling so the list stays in sync with the live queue
+    startValidationPolling();
   });
 
   // Handle connection errors
@@ -643,5 +656,140 @@ async function handleImplementAssignment() {
     }
   }
 }
+
+// ─── Validation queue real-time polling ──────────────────────────────────────
+
+/**
+ * Start the background polling loop that checks for queue changes every
+ * VALIDATION_POLL_INTERVAL milliseconds.
+ * Also starts the 1-second countdown timer displayed in the header.
+ * Safe to call multiple times — clears any existing intervals first.
+ */
+function startValidationPolling() {
+  stopValidationPolling();
+  debugLog('[MAIN] - Starting validation ticket polling (interval:', CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL, 'ms)');
+  validationPollingInterval = setInterval(handleValidationPoll, CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL);
+  startCountdownTimer();
+}
+
+/**
+ * Stop the background polling loop and the countdown timer.
+ */
+function stopValidationPolling() {
+  if (validationPollingInterval !== null) {
+    clearInterval(validationPollingInterval);
+    validationPollingInterval = null;
+    debugLog('[MAIN] - Stopped validation ticket polling');
+  }
+  stopCountdownTimer();
+}
+
+/**
+ * Start (or restart) the 1-second countdown timer.
+ * Resets the counter to the full poll interval and ticks down each second.
+ */
+function startCountdownTimer() {
+  stopCountdownTimer();
+  const totalSeconds = Math.round(CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL / 1000);
+  validationCountdownSeconds = totalSeconds;
+  TicketRenderer.updateCountdownDisplay(validationCountdownSeconds);
+
+  validationCountdownInterval = setInterval(() => {
+    validationCountdownSeconds = Math.max(0, validationCountdownSeconds - 1);
+    TicketRenderer.updateCountdownDisplay(validationCountdownSeconds);
+  }, 1000);
+}
+
+/**
+ * Stop the countdown timer and clear the display.
+ */
+function stopCountdownTimer() {
+  if (validationCountdownInterval !== null) {
+    clearInterval(validationCountdownInterval);
+    validationCountdownInterval = null;
+  }
+  TicketRenderer.updateCountdownDisplay(null);
+}
+
+/**
+ * One polling cycle:
+ *  1. Collect the IDs currently shown in the accordion.
+ *  2. Ask the server which have left the queue and which are new.
+ *  3. Dim items that have left; add skeleton items for new ones and fetch their data.
+ *  4. Update the "Last checked" timestamp.
+ */
+async function handleValidationPoll() {
+  debugLog('[MAIN] - Running validation ticket poll');
+
+  const displayedIds = TicketRenderer.getDisplayedTicketIds();
+  if (displayedIds.size === 0) {
+    debugLog('[MAIN] - No tickets displayed, skipping poll');
+    return;
+  }
+
+  const idsParam = Array.from(displayedIds).join(',');
+
+  try {
+    const response = await fetch(
+      `${CONSTANTS.API.CHECK_VALIDATION_TICKETS}?ids=${encodeURIComponent(idsParam)}`
+    );
+
+    if (!response.ok) {
+      debugLog('[MAIN] - Poll request failed with status:', response.status);
+      return;
+    }
+
+    const data = await response.json();
+    debugLog('[MAIN] - Poll result — left:', data.left_queue?.length ?? 0,
+             'new:', data.new_in_queue?.length ?? 0);
+
+    // Dim tickets that have left the Validation queue
+    if (data.left_queue && data.left_queue.length > 0) {
+      TicketRenderer.markTicketsLeftQueue(data.left_queue);
+    }
+
+    // Add skeleton items for newly-arrived tickets and fetch their full data
+    if (data.new_in_queue && data.new_in_queue.length > 0) {
+      for (const ticketId of data.new_in_queue) {
+        const pendingIndex = nextPendingTicketIndex++;
+        TicketRenderer.addPendingTicket(ticketId, pendingIndex);
+        fetchAndHydrateTicket(ticketId, pendingIndex);
+      }
+    }
+
+    // Update the "Last checked" timestamp and reset the countdown
+    TicketRenderer.updateLastCheckedTime(new Date());
+    startCountdownTimer();
+
+  } catch (error) {
+    debugLog('[MAIN] - Poll error:', error);
+  }
+}
+
+/**
+ * Fetch full ticket data for a single ID and replace its skeleton item.
+ * @param {string} ticketId
+ * @param {number} pendingIndex
+ */
+async function fetchAndHydrateTicket(ticketId, pendingIndex) {
+  try {
+    const response = await fetch(
+      `${CONSTANTS.API.GET_SINGLE_VALIDATION_TICKET}?id=${encodeURIComponent(ticketId)}`
+    );
+
+    if (!response.ok) {
+      debugLog('[MAIN] - Failed to fetch ticket data for', ticketId, '— status:', response.status);
+      return;
+    }
+
+    const ticketData = await response.json();
+    TicketRenderer.hydrateTicket(ticketId, ticketData, pendingIndex);
+
+  } catch (error) {
+    debugLog('[MAIN] - Error hydrating ticket', ticketId, ':', error);
+  }
+}
+
+// ─── End validation queue real-time polling ───────────────────────────────────
 
 console.log('Main script loaded and initialized.');

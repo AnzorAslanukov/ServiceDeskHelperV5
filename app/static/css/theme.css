@@ -483,6 +483,50 @@ body {
   color: #6ea8fe;
 }
 
+/* ── Real-time queue monitoring styles ─────────────────────────────────────── */
+
+/* Tickets that have left the Validation queue: dim the whole accordion item */
+.ticket-left-queue {
+  opacity: 0.45;
+  transition: opacity 0.4s ease;
+}
+
+/* Keep the "No longer in queue" badge readable even at reduced opacity */
+.ticket-left-queue .left-queue-badge {
+  opacity: 1;
+}
+
+/* Strikethrough on the ticket title text for left-queue items */
+.ticket-left-queue .ticket-title {
+  text-decoration: line-through;
+  color: var(--bs-secondary-color, #6c757d);
+}
+
+/* Pending (skeleton) accordion items for newly-arrived tickets */
+.ticket-pending .accordion-header {
+  background-color: rgba(13, 110, 253, 0.05);
+  border-left: 3px solid #0d6efd;
+  border-radius: 0 0.375rem 0.375rem 0;
+  transition: background-color 0.3s;
+}
+
+[data-bs-theme="dark"] .ticket-pending .accordion-header {
+  background-color: rgba(13, 110, 253, 0.12);
+}
+
+/* "New" badge on hydrated tickets: fade out after a while via CSS animation */
+.new-ticket-badge {
+  animation: fadeOutBadge 30s forwards;
+}
+
+@keyframes fadeOutBadge {
+  0%   { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; pointer-events: none; }
+}
+
+/* ── End real-time queue monitoring styles ──────────────────────────────────── */
+
 /* Batch mode compact selector */
 .support-group-selector-compact .support-group-options {
   gap: 0.25rem;

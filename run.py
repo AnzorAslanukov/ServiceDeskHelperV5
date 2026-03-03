@@ -1021,6 +1021,105 @@ def api_get_validation_tickets_stream():
         }
     )
 
+@app.route('/api/check-validation-tickets', methods=['GET'])
+def api_check_validation_tickets():
+    """
+    Compare a caller-supplied list of ticket IDs against the current Athena
+    Validation queue and return which IDs have left, which are new, and which
+    are unchanged.
+
+    Query params:
+    - ids: comma-separated list of ticket IDs currently displayed in the UI
+
+    Returns:
+    {
+        "still_in_queue": [...],
+        "left_queue":     [...],   # were displayed, no longer in Validation
+        "new_in_queue":   [...]    # now in Validation, not yet displayed
+    }
+    """
+    output = Output()
+    ids_param = request.args.get('ids', '').strip()
+    displayed_ids = set(i.strip() for i in ids_param.split(',') if i.strip()) if ids_param else set()
+
+    try:
+        athena = Athena()
+        current_ids = athena.get_validation_tickets()
+        if current_ids is None:
+            return jsonify({'error': 'Failed to fetch validation tickets from Athena'}), 500
+
+        current_set = set(current_ids)
+
+        result = {
+            'still_in_queue': list(displayed_ids & current_set),
+            'left_queue':     list(displayed_ids - current_set),
+            'new_in_queue':   list(current_set - displayed_ids)
+        }
+
+        if DEBUG:
+            output.add_line(
+                f"check-validation-tickets: displayed={len(displayed_ids)}, "
+                f"left={len(result['left_queue'])}, new={len(result['new_in_queue'])}"
+            )
+
+        return jsonify(result)
+
+    except Exception as e:
+        output.add_line(f"Error in api_check_validation_tickets: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/get-single-validation-ticket', methods=['GET'])
+def api_get_single_validation_ticket():
+    """
+    Fetch full ticket data for a single ticket ID.
+    Used to hydrate pending (skeleton) accordion items added by the polling loop.
+
+    Query params:
+    - id: ticket ID to fetch
+
+    Returns the same ticket shape used by the streaming validation endpoint.
+    """
+    output = Output()
+    ticket_id = request.args.get('id', '').strip()
+
+    if not ticket_id:
+        return jsonify({'error': 'Missing id parameter'}), 400
+
+    try:
+        athena = Athena()
+        ticket_data = athena.get_ticket_data(ticket_number=ticket_id, view=True)
+
+        if not ticket_data or 'result' not in ticket_data or not ticket_data['result']:
+            return jsonify({'error': f'Could not retrieve ticket {ticket_id}'}), 404
+
+        ticket = ticket_data['result'][0]
+
+        truncated_desc = ticket.get('description', '')[:32]
+        if len(ticket.get('description', '')) > 32:
+            truncated_desc += '...'
+
+        return jsonify({
+            'id':               ticket.get('id'),
+            'title':            ticket.get('title'),
+            'description':      truncated_desc,
+            'full_description': ticket.get('description', ''),
+            'priority':         ticket.get('priority'),
+            'location':         ticket.get('location'),
+            'created_at':       ticket.get('created_at'),
+            'status':           ticket.get('status', ''),
+            'assigned_to':      ticket.get('assigned_to', ''),
+            'affected_user':    ticket.get('affected_user', ''),
+            'source':           ticket.get('source', ''),
+            'support_group':    ticket.get('support_group', ''),
+            'resolution_notes': ticket.get('resolution_notes', '')
+        })
+
+    except Exception as e:
+        output.add_line(f"Error in api_get_single_validation_ticket: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/implement-assignments', methods=['POST'])
 def api_implement_assignments():
     """

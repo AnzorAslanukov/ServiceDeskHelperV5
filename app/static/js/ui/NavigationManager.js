@@ -59,8 +59,8 @@ class NavigationManager {
     // Show search toggle buttons (will recreate if needed)
     this.searchUIManager.show();
 
-    // Show search input
-    this.searchUIManager.showSearchInput();
+    // Show search input (managed by AssignmentUIManager which owns hide/show of the input group)
+    this.assignmentUIManager.showSearchInput();
 
     // Clear content area
     TicketRenderer.clear();

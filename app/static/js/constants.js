@@ -78,7 +78,9 @@ const CONSTANTS = {
     GET_TICKET_ADVICE: '/api/get-ticket-advice',
     GET_TICKET_ADVICE_STREAM: '/api/get-ticket-advice-stream',
     GET_VALIDATION_TICKETS: '/api/get-validation-tickets',
-    GET_VALIDATION_TICKETS_STREAM: '/api/get-validation-tickets-stream'
+    GET_VALIDATION_TICKETS_STREAM: '/api/get-validation-tickets-stream',
+    CHECK_VALIDATION_TICKETS: '/api/check-validation-tickets',
+    GET_SINGLE_VALIDATION_TICKET: '/api/get-single-validation-ticket'
   },
 
   // Default configuration values
@@ -88,7 +90,8 @@ const CONSTANTS = {
     TRUNCATE_LENGTH_SHORT: 100,
     CONTENT_PREVIEW_LENGTH: 200,
     MAX_RESULTS: 5,
-    COPY_SUCCESS_DURATION: 3000
+    COPY_SUCCESS_DURATION: 3000,
+    VALIDATION_POLL_INTERVAL: 90000
   },
 
   // Icon base names for ToggleButton
