@@ -167,7 +167,14 @@ class TicketRenderer {
     const toggleBtn = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_TOGGLE_ALL_BTN);
 
     if (header) {
-      header.textContent = `Validation Tickets (${loadedCount}/${totalCount})`;
+      // When loading is complete, show only the final loaded count.
+      // Showing "X/Y" when Y > X (some tickets failed) looks like loading is
+      // still in progress, which confuses users ("stuck at 45/47").
+      if (isComplete) {
+        header.textContent = `Validation Tickets (${loadedCount})`;
+      } else {
+        header.textContent = `Validation Tickets (${loadedCount}/${totalCount})`;
+      }
     }
 
     if (progressSpan) {
@@ -1330,6 +1337,38 @@ class TicketRenderer {
     const activeCount = allItems.length - leftCount;
 
     header.textContent = `Validation Tickets (${activeCount})`;
+  }
+
+  /**
+   * Remove all accordion items that were marked as having left the Validation queue
+   * in the previous poll cycle.  Called at the start of each new poll so that
+   * dimmed items are cleaned up after the user has had one full countdown period
+   * to notice them.
+   */
+  static removeLeftQueueTickets() {
+    const leftItems = document.querySelectorAll(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} > .accordion-item.ticket-left-queue`
+    );
+    leftItems.forEach(item => item.remove());
+    if (leftItems.length > 0) {
+      this._updateValidationTicketCount();
+      debugLog('[RENDERER] - Removed', leftItems.length, 'left-queue ticket(s) from DOM');
+    }
+  }
+
+  /**
+   * Strip the "New" badge from every ticket that was newly added in the previous
+   * poll cycle.  Called at the start of each new poll so that the badge is only
+   * visible for one countdown period after a ticket first appears.
+   */
+  static clearNewTicketBadges() {
+    const newBadges = document.querySelectorAll(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} .new-ticket-badge`
+    );
+    newBadges.forEach(badge => badge.remove());
+    if (newBadges.length > 0) {
+      debugLog('[RENDERER] - Cleared', newBadges.length, '"New" badge(s) from ticket headers');
+    }
   }
 
   /**

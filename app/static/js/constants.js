@@ -81,6 +81,8 @@ const CONSTANTS = {
     GET_VALIDATION_TICKETS_STREAM: '/api/get-validation-tickets-stream',
     CHECK_VALIDATION_TICKETS: '/api/check-validation-tickets',
     GET_SINGLE_VALIDATION_TICKET: '/api/get-single-validation-ticket',
+    TRIGGER_VALIDATION_LOAD: '/api/trigger-validation-load',
+    VALIDATION_BROADCAST: '/api/validation-broadcast',
     PRESENCE_HEARTBEAT: '/api/presence/heartbeat',
     PRESENCE_LEAVE: '/api/presence/leave'
   },

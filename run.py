@@ -79,6 +79,54 @@ _presence_lock = threading.Lock()
 _active_sessions: dict = {}   # session_id -> {last_seen, color, label}
 _session_counter = 0           # monotonically increasing label counter
 SESSION_EXPIRY_SECONDS = 60    # remove sessions silent for this long
+
+# ── Shared validation-ticket broadcast state ──────────────────────────────────
+import queue as _queue_module
+
+_validation_lock = threading.Lock()
+_validation_state = 'idle'      # 'idle' | 'loading' | 'loaded'
+_validation_tickets: list = []  # cached ticket dicts (set when state == 'loaded')
+_validation_fetched_at: float = 0.0
+_validation_clients: dict = {}  # session_id -> queue.Queue  (one per SSE connection)
+_validation_load_buffer: list = []  # events broadcast during the current load session
+                                    # used to catch up clients that connect mid-load
+VALIDATION_CACHE_TTL = 300      # seconds before a re-fetch is allowed
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 30 visually distinct colors for presence circles.
+# Colors are assigned server-side to guarantee no two active sessions share a color.
+PRESENCE_COLORS = [
+    '#0d6efd',  # blue
+    '#198754',  # green
+    '#fd7e14',  # orange
+    '#6f42c1',  # purple
+    '#0dcaf0',  # cyan
+    '#dc3545',  # red
+    '#6610f2',  # indigo
+    '#d63384',  # pink
+    '#20c997',  # teal
+    '#ffc107',  # yellow
+    '#0d9488',  # dark teal
+    '#7c3aed',  # violet
+    '#db2777',  # rose
+    '#ea580c',  # deep orange
+    '#16a34a',  # dark green
+    '#2563eb',  # royal blue
+    '#9333ea',  # bright purple
+    '#e11d48',  # crimson
+    '#0891b2',  # sky blue
+    '#65a30d',  # lime green
+    '#c2410c',  # burnt orange
+    '#4f46e5',  # slate blue
+    '#be185d',  # hot pink
+    '#0f766e',  # dark cyan
+    '#b45309',  # amber brown
+    '#7e22ce',  # deep violet
+    '#15803d',  # forest green
+    '#1d4ed8',  # cobalt blue
+    '#9f1239',  # dark rose
+    '#a16207',  # gold
+]
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route('/favicon.ico')
@@ -1041,8 +1089,8 @@ def api_presence_heartbeat():
     global _session_counter
     data = request.get_json(silent=True) or {}
     session_id = data.get('session_id', '').strip()
-    color = data.get('color', '#0d6efd').strip()
     display_name = (data.get('display_name') or '').strip() or None
+    # Note: clients no longer send a color — it is assigned server-side from PRESENCE_COLORS
 
     if not session_id:
         return jsonify({'error': 'Missing session_id'}), 400
@@ -1061,9 +1109,22 @@ def api_presence_heartbeat():
             _session_counter += 1
             # Use the provided display name as the label; fall back to Viewer N
             label = display_name if display_name else f'Viewer {_session_counter}'
+            # Assign the first palette color not already in use by an active session.
+            # If all 30 colors are taken, fall back to the color least frequently used.
+            used_colors = [info['color'] for info in _active_sessions.values()]
+            assigned_color = None
+            for c in PRESENCE_COLORS:
+                if c not in used_colors:
+                    assigned_color = c
+                    break
+            if assigned_color is None:
+                # All colors taken — pick the least-used one
+                from collections import Counter
+                color_counts = Counter(used_colors)
+                assigned_color = min(PRESENCE_COLORS, key=lambda c: color_counts.get(c, 0))
             _active_sessions[session_id] = {
                 'last_seen': now,
-                'color': color,
+                'color': assigned_color,
                 'label': label
             }
         else:
@@ -1323,6 +1384,258 @@ def api_implement_assignments():
         return jsonify({'error': error_msg}), 500
 
 
+# ── Validation broadcast helpers ─────────────────────────────────────────────
+
+def _broadcast_validation_event(event_type: str, data: dict, _buffer: bool = True):
+    """
+    Push a single SSE event to every connected validation-broadcast client.
+    Dead queues (full) are removed silently.
+
+    When _buffer=True and the current state is 'loading', the event is also
+    appended to _validation_load_buffer so that clients connecting mid-load
+    can replay missed events from the initial burst.
+    """
+    with _validation_lock:
+        if _buffer and _validation_state == 'loading':
+            _validation_load_buffer.append({'event': event_type, 'data': data})
+
+        dead = []
+        for sid, q in _validation_clients.items():
+            try:
+                q.put_nowait({'event': event_type, 'data': data})
+            except _queue_module.Full:
+                dead.append(sid)
+        for sid in dead:
+            del _validation_clients[sid]
+
+
+def _format_validation_ticket(ticket: dict, index: int) -> dict:
+    """Return the standard ticket dict used by all validation endpoints."""
+    truncated_desc = ticket.get('description', '')[:32]
+    if len(ticket.get('description', '')) > 32:
+        truncated_desc += '...'
+    return {
+        'id':               ticket.get('id'),
+        'title':            ticket.get('title'),
+        'description':      truncated_desc,
+        'full_description': ticket.get('description', ''),
+        'priority':         ticket.get('priority'),
+        'location':         ticket.get('location'),
+        'created_at':       ticket.get('created_at'),
+        'status':           ticket.get('status', ''),
+        'assigned_to':      ticket.get('assigned_to', ''),
+        'affected_user':    ticket.get('affected_user', ''),
+        'source':           ticket.get('source', ''),
+        'support_group':    ticket.get('support_group', ''),
+        'resolution_notes': ticket.get('resolution_notes', ''),
+        'index':            index,
+    }
+
+
+def _do_validation_fetch():
+    """
+    Background thread: fetch all validation tickets from Athena and broadcast
+    each one to every connected client as it arrives.
+
+    Updates _validation_state / _validation_tickets / _validation_fetched_at.
+    """
+    global _validation_state, _validation_tickets, _validation_fetched_at
+    output = Output()
+
+    try:
+        athena = Athena()
+        ticket_ids = athena.get_validation_tickets()
+
+        if not ticket_ids:
+            with _validation_lock:
+                _validation_state = 'idle'
+            _broadcast_validation_event('count', {'count': 0})
+            _broadcast_validation_event('complete', {'message': 'No validation tickets found', 'count': 0})
+            if DEBUG:
+                output.add_line('_do_validation_fetch: no tickets found')
+            return
+
+        total = len(ticket_ids)
+        if DEBUG:
+            output.add_line(f'_do_validation_fetch: fetching {total} tickets')
+
+        _broadcast_validation_event('count', {'count': total})
+
+        fetched: list = []
+        for index, ticket_id in enumerate(ticket_ids):
+            try:
+                ticket_data = athena.get_ticket_data(ticket_number=ticket_id, view=True)
+                if ticket_data and ticket_data.get('result'):
+                    ticket = ticket_data['result'][0]
+                    vt = _format_validation_ticket(ticket, index)
+                    fetched.append(vt)
+                    _broadcast_validation_event('ticket', vt)
+                    if DEBUG:
+                        output.add_line(f'_do_validation_fetch: broadcast ticket {index + 1}/{total}: {ticket_id}')
+                else:
+                    _broadcast_validation_event('error', {
+                        'index': index, 'ticket_id': ticket_id,
+                        'message': 'Failed to fetch ticket data'
+                    })
+            except Exception as e:
+                _broadcast_validation_event('error', {
+                    'index': index, 'ticket_id': ticket_id, 'message': str(e)
+                })
+
+        with _validation_lock:
+            _validation_state = 'loaded'
+            _validation_tickets = fetched
+            _validation_fetched_at = time.time()
+
+        _broadcast_validation_event('complete', {'count': len(fetched)})
+        if DEBUG:
+            output.add_line(f'_do_validation_fetch: complete, {len(fetched)} tickets cached')
+
+    except Exception as e:
+        output.add_line(f'_do_validation_fetch: fatal error: {e}')
+        with _validation_lock:
+            _validation_state = 'idle'
+        _broadcast_validation_event('error', {'message': str(e)})
+
+
+@app.route('/api/trigger-validation-load', methods=['POST'])
+def api_trigger_validation_load():
+    """
+    Any client can POST here to trigger a shared validation-ticket fetch.
+
+    - If already loading → returns {status: 'loading'} immediately; the caller
+      should wait on its /api/validation-broadcast SSE connection.
+    - If loaded and cache is fresh → returns {status: 'already_loaded', count: N};
+      the broadcast connection will replay the cache automatically on connect.
+    - Otherwise → starts a background fetch and returns {status: 'loading_started'}.
+    """
+    global _validation_state, _validation_tickets, _validation_fetched_at
+
+    now = time.time()
+    with _validation_lock:
+        state = _validation_state
+        fetched_at = _validation_fetched_at
+        cached_count = len(_validation_tickets)
+
+    if state == 'loading':
+        return jsonify({'status': 'loading'})
+
+    if state == 'loaded' and (now - fetched_at) < VALIDATION_CACHE_TTL:
+        return jsonify({'status': 'already_loaded', 'count': cached_count})
+
+    # Transition to loading, clear the mid-load buffer, and kick off background fetch.
+    # The buffer is cleared here (under the lock) so that any client connecting after
+    # this point gets a fresh snapshot of only the current load session's events.
+    with _validation_lock:
+        _validation_state = 'loading'
+        _validation_load_buffer.clear()
+
+    # The 'state: loading' event is NOT buffered (_buffer=False) because clients
+    # connecting mid-load receive it from the initial burst in generate(), not the buffer.
+    _broadcast_validation_event('state', {'state': 'loading'}, _buffer=False)
+    threading.Thread(target=_do_validation_fetch, daemon=True).start()
+
+    if DEBUG:
+        output = Output()
+        output.add_line('api_trigger_validation_load: started background fetch')
+
+    return jsonify({'status': 'loading_started'})
+
+
+@app.route('/api/validation-broadcast', methods=['GET'])
+def api_validation_broadcast():
+    """
+    Long-lived SSE connection for real-time validation-ticket synchronisation.
+
+    All clients in Multiple-Tickets mode subscribe here.  When any client
+    triggers a fetch via /api/trigger-validation-load, the server fetches once
+    and broadcasts every ticket event to ALL connected clients.
+
+    On connect:
+    - If state == 'loaded' and cache is fresh → replay cached tickets immediately.
+    - If state == 'loading'                   → send {state: 'loading'} so the
+                                                 client can show a spinner.
+    - If state == 'idle'                      → send {state: 'idle'}.
+
+    A 30-second keepalive comment is sent while waiting for new events so that
+    proxies / load-balancers do not close the idle connection.
+
+    Query params:
+    - session_id: the caller's presence session ID (used as the queue key)
+    """
+    session_id = request.args.get('session_id', '').strip()
+    if not session_id:
+        # Generate a throwaway key so the connection still works
+        import uuid
+        session_id = str(uuid.uuid4())
+
+    client_queue: _queue_module.Queue = _queue_module.Queue(maxsize=200)
+
+    # Register the client and snapshot state atomically.
+    # Reading _validation_load_buffer under the same lock guarantees that any
+    # event broadcast after this block will be in client_queue, and any event
+    # broadcast before this block will be in load_buffer_snapshot — no gaps.
+    with _validation_lock:
+        _validation_clients[session_id] = client_queue
+        current_state = _validation_state
+        load_buffer_snapshot = list(_validation_load_buffer)
+        cached_tickets = list(_validation_tickets)
+        fetched_at = _validation_fetched_at
+
+    now = time.time()
+    cache_fresh = (now - fetched_at) < VALIDATION_CACHE_TTL
+
+    def generate():
+        try:
+            # ── Initial state burst ───────────────────────────────────────────
+            if current_state == 'loaded' and cache_fresh and cached_tickets:
+                # Replay the full cached ticket list to this late-joining client
+                yield f"event: state\ndata: {json.dumps({'state': 'loaded'})}\n\n"
+                yield f"event: count\ndata: {json.dumps({'count': len(cached_tickets)})}\n\n"
+                for ticket in cached_tickets:
+                    yield f"event: ticket\ndata: {json.dumps(ticket)}\n\n"
+                yield f"event: complete\ndata: {json.dumps({'count': len(cached_tickets)})}\n\n"
+            elif current_state == 'loading':
+                # Send the loading state indicator first
+                yield f"event: state\ndata: {json.dumps({'state': 'loading'})}\n\n"
+                # Replay events that were broadcast before this client connected.
+                # load_buffer_snapshot was captured atomically with client registration,
+                # so together with the queue relay below it covers every event with
+                # no gaps and no duplicates.
+                for msg in load_buffer_snapshot:
+                    yield f"event: {msg['event']}\ndata: {json.dumps(msg['data'])}\n\n"
+            else:
+                yield f"event: state\ndata: {json.dumps({'state': 'idle'})}\n\n"
+
+            # ── Relay broadcast events ────────────────────────────────────────
+            while True:
+                try:
+                    msg = client_queue.get(timeout=30)
+                    yield f"event: {msg['event']}\ndata: {json.dumps(msg['data'])}\n\n"
+                except _queue_module.Empty:
+                    # Send SSE keepalive comment to prevent proxy timeouts
+                    yield ': keepalive\n\n'
+
+        finally:
+            with _validation_lock:
+                _validation_clients.pop(session_id, None)
+            if DEBUG:
+                output = Output()
+                output.add_line(f'api_validation_broadcast: client {session_id[:8]}… disconnected')
+
+    return app.response_class(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+        }
+    )
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def _warm_up_warehouse():
     """
     Start the Databricks SQL warehouse in the background at app startup.
@@ -1350,5 +1663,5 @@ if __name__ == '__main__':
     # When debug=False (production), the condition is also satisfied.
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
         threading.Thread(target=_warm_up_warehouse, daemon=True).start()
-    app.run(host='0.0.0.0', debug=True)
+    app.run(host='0.0.0.0', debug=True, threaded=True)
     # get_ticket_advice("IR10256351")

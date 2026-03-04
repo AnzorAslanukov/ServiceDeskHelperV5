@@ -395,22 +395,37 @@ class AssignmentUIManager {
 
   /**
    * Render presence indicator circles in the toggle row.
-   * Each session is shown as a colored circle with a person icon.
+   * The first PRESENCE_VISIBLE_LIMIT circles are shown normally.
+   * If there are more, a "+N" overflow badge is appended that opens a
+   * Bootstrap popover listing the hidden users' names.
    * The current user's circle gets a distinct outline ring.
    * @param {Array} sessions - Array of { session_id, color, label } objects
    * @param {string} mySessionId - The current user's session ID
    */
   renderPresenceIndicators(sessions, mySessionId) {
+    const PRESENCE_VISIBLE_LIMIT = 8;
     const container = document.getElementById('presence-indicators');
     if (!container) return;
+
+    // Destroy any existing popovers attached to the overflow badge before re-rendering
+    const existingBadge = container.querySelector('.presence-overflow-badge');
+    if (existingBadge) {
+      const existingPopover = bootstrap.Popover.getInstance(existingBadge);
+      if (existingPopover) existingPopover.dispose();
+    }
 
     if (!sessions || sessions.length === 0) {
       container.innerHTML = '';
       return;
     }
 
+    const visible = sessions.slice(0, PRESENCE_VISIBLE_LIMIT);
+    const overflow = sessions.slice(PRESENCE_VISIBLE_LIMIT);
+
     let html = '';
-    sessions.forEach(session => {
+
+    // Render the visible circles
+    visible.forEach(session => {
       const isMe = session.session_id === mySessionId;
       const meClass = isMe ? ' presence-indicator-me' : '';
       const label = `${session.label}${isMe ? ' (you)' : ''}`;
@@ -425,9 +440,66 @@ class AssignmentUIManager {
       `;
     });
 
+    // Render the overflow badge if needed.
+    // NOTE: data-bs-content is intentionally omitted from the HTML template —
+    // it is set via setAttribute() after innerHTML is assigned so that the
+    // popover HTML string never needs to be escaped as an attribute value.
+    let popoverContent = '';
+    if (overflow.length > 0) {
+      popoverContent = overflow.map(s => {
+        const isMe = s.session_id === mySessionId;
+        const label = `${s.label}${isMe ? ' (you)' : ''}`;
+        return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;vertical-align:middle;"></span>${label}`;
+      }).join('<br>');
+
+      html += `
+        <div class="presence-overflow-badge"
+             role="button"
+             tabindex="0"
+             data-bs-toggle="popover"
+             data-bs-trigger="click"
+             data-bs-placement="bottom"
+             data-bs-html="true"
+             title="${overflow.length} more viewer${overflow.length > 1 ? 's' : ''}">
+          +${overflow.length}
+        </div>
+      `;
+    }
+
     container.innerHTML = html;
+
+    // Set the popover content attribute programmatically so the HTML string
+    // does not need to be entity-encoded for use inside an attribute value.
+    if (overflow.length > 0) {
+      const badgeEl = container.querySelector('.presence-overflow-badge');
+      if (badgeEl) {
+        badgeEl.setAttribute('data-bs-content', popoverContent);
+      }
+    }
+
+    // Initialise tooltips on the visible circles
     initializeTooltips('#presence-indicators [data-bs-toggle="tooltip"]');
-    debugLog('[ASSIGNMENT_UI] - Rendered', sessions.length, 'presence indicator(s)');
+
+    // Initialise the overflow popover (if present) and auto-dismiss on outside click
+    const badge = container.querySelector('.presence-overflow-badge');
+    if (badge) {
+      const pop = new bootstrap.Popover(badge, { html: true });
+
+      // Dismiss popover when clicking anywhere outside it
+      const outsideClickHandler = (e) => {
+        if (!badge.contains(e.target) && !document.querySelector('.popover')?.contains(e.target)) {
+          pop.hide();
+        }
+      };
+      document.addEventListener('click', outsideClickHandler);
+
+      // Clean up the outside-click listener when the popover is fully hidden
+      badge.addEventListener('hidden.bs.popover', () => {
+        document.removeEventListener('click', outsideClickHandler);
+      }, { once: true });
+    }
+
+    debugLog('[ASSIGNMENT_UI] - Rendered', visible.length, 'visible +', overflow.length, 'overflow presence indicator(s)');
   }
 
   /**

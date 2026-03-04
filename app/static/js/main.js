@@ -15,11 +15,17 @@ let batchProcessor;
 
 // ─── Validation queue polling state ──────────────────────────────────────────
 let validationPollingInterval = null;
+let validationAlignmentTimeout = null;  // one-shot timeout used to align to epoch boundary
 let validationCountdownInterval = null;
 let validationCountdownSeconds = 0;
 // Counter for unique indices assigned to newly-discovered (pending) tickets.
 // Starting at 10000 keeps them well clear of the initial 0-based stream indices.
 let nextPendingTicketIndex = 10000;
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Validation broadcast state ───────────────────────────────────────────────
+/** The long-lived EventSource subscribed to /api/validation-broadcast */
+let validationBroadcastSource = null;
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Presence heartbeat state ─────────────────────────────────────────────────
@@ -28,11 +34,14 @@ let mySessionId = null;
 let myPresenceColor = null;
 let myDisplayName = null;
 
-/** Palette of 8 distinct colors for presence circles */
-const PRESENCE_COLORS = [
-  '#0d6efd', '#198754', '#fd7e14', '#6f42c1',
-  '#0dcaf0', '#dc3545', '#6610f2', '#d63384'
-];
+/**
+ * DEBUG: set to true to inject 16 synthetic presence sessions so the
+ * overflow badge UI can be tested without needing 16 real browser tabs.
+ * The mock sessions are injected in handlePresenceUpdate() before the
+ * data reaches renderPresenceIndicators().
+ * Set back to false (or leave false) for normal operation.
+ */
+const DEBUG_PRESENCE_MOCK = false;
 
 /** Generate a UUID-v4-like random string */
 function generateSessionId() {
@@ -41,11 +50,6 @@ function generateSessionId() {
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
-}
-
-/** Pick a random color from the presence palette */
-function getRandomPresenceColor() {
-  return PRESENCE_COLORS[Math.floor(Math.random() * PRESENCE_COLORS.length)];
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -86,13 +90,17 @@ function initializeManagers() {
   navigationManager.initialize({
     onSwitchToSearch: () => {
       debugLog('[MAIN] - Switched to search mode callback');
-      stopValidationPolling(); // Stop polling when leaving assignment/validation view
-      stopPresenceHeartbeat(); // Stop presence when leaving assignment view
+      stopValidationPolling();          // Stop polling when leaving assignment/validation view
+      stopPresenceHeartbeat();          // Stop presence when leaving assignment view
+      stopValidationBroadcastListener(); // Close the shared broadcast SSE connection
     },
     onSwitchToAssignment: () => {
       debugLog('[MAIN] - Switched to assignment mode callback');
       attachAssignmentEventListeners();
-      // Presence is started only when the user switches to Multiple Tickets mode
+      // Open the broadcast listener immediately on entering the Assignment section
+      // so that tickets pushed by another user are received even before the local
+      // user clicks the Multiple Tickets toggle.
+      startValidationBroadcastListener();
     }
   });
 
@@ -142,7 +150,8 @@ function attachAssignmentEventListeners() {
   assignmentUIManager.attachToggleListeners(
     () => {
       debugLog('[MAIN] - Single ticket mode selected');
-      stopPresenceHeartbeat(); // Leave the validation/batch view → stop presence
+      stopPresenceHeartbeat();
+      stopValidationBroadcastListener();
     },
     () => {
       debugLog('[MAIN] - Multiple tickets mode selected');
@@ -150,12 +159,16 @@ function attachAssignmentEventListeners() {
       setTimeout(attachBatchButtonListeners, 0);
       // startPresenceHeartbeat handles the name-prompt gate internally
       startPresenceHeartbeat();
+      // Open the shared broadcast channel so this client receives tickets
+      // pushed by any user who clicks "Get validation tickets"
+      startValidationBroadcastListener();
     }
   );
 
-  // If in multiple mode, attach batch listeners immediately
+  // If already in multiple mode when this runs, start the broadcast listener
   if (assignmentUIManager.getMode() === CONSTANTS.MODES.MULTIPLE_TICKETS) {
     attachBatchButtonListeners();
+    startValidationBroadcastListener();
   }
 }
 
@@ -382,93 +395,64 @@ async function handleGetValidationTickets() {
 }
 
 /**
- * Handle get validation tickets button click with streaming (SSE)
- * Tickets are displayed one-by-one as they are fetched from the backend
+ * Handle get validation tickets button click.
+ *
+ * Instead of opening its own SSE stream, this function POSTs to
+ * /api/trigger-validation-load.  The actual ticket data arrives via the
+ * already-open /api/validation-broadcast connection (startValidationBroadcastListener).
+ *
+ * If the server reports the cache is already fresh (another user loaded tickets
+ * recently), the broadcast connection will have already replayed the cached
+ * tickets on connect, so nothing extra is needed.
  */
-function handleGetValidationTicketsStream() {
-  debugLog('[MAIN] - Get validation tickets (streaming) clicked');
+async function handleGetValidationTicketsStream() {
+  debugLog('[MAIN] - Get validation tickets clicked (trigger mode)');
 
-  // Set workflow state to loading
-  assignmentUIManager.setWorkflowState('tickets-loading');
+  // Ensure the broadcast listener is open before we trigger the load
+  // (it may not be if the user navigated away and back)
+  startValidationBroadcastListener();
 
-  // Initialize the streaming container
-  TicketRenderer.renderValidationTicketsStreamingInit();
+  try {
+    const response = await fetch(CONSTANTS.API.TRIGGER_VALIDATION_LOAD, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
 
-  // Create EventSource for SSE
-  const eventSource = new EventSource(CONSTANTS.API.GET_VALIDATION_TICKETS_STREAM);
-  
-  let totalCount = 0;
-  let loadedCount = 0;
-  let hasError = false;
-
-  eventSource.addEventListener('count', (event) => {
-    const data = JSON.parse(event.data);
-    totalCount = data.count;
-    debugLog('[MAIN] - Expected ticket count:', totalCount);
-    
-    if (totalCount === 0) {
-      TicketRenderer.renderError('No validation tickets found.');
-      assignmentUIManager.setWorkflowState('idle');
-      eventSource.close();
-    } else {
-      // Update header with expected count
-      TicketRenderer.updateStreamingProgress(0, totalCount, false);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-  });
 
-  eventSource.addEventListener('ticket', (event) => {
-    const ticket = JSON.parse(event.data);
-    debugLog('[MAIN] - Received ticket:', ticket.id);
-    
-    // Append the ticket to the accordion
-    TicketRenderer.appendValidationTicket(ticket, ticket.index);
-    
-    // Update progress
-    loadedCount++;
-    TicketRenderer.updateStreamingProgress(loadedCount, totalCount, false);
-  });
+    const result = await response.json();
+    debugLog('[MAIN] - Trigger response:', result);
 
-  eventSource.addEventListener('error', (event) => {
-    const errorData = JSON.parse(event.data);
-    debugLog('[MAIN] - Stream error:', errorData);
-    
-    // Log error but continue processing other tickets
-    if (errorData.ticket_id) {
-      console.warn(`Error loading ticket ${errorData.ticket_id}: ${errorData.message}`);
-    } else {
-      // Fatal error
-      hasError = true;
-      TicketRenderer.renderError('Error loading validation tickets: ' + errorData.message);
-      assignmentUIManager.setWorkflowState('idle');
-      eventSource.close();
+    if (result.status === 'loading' || result.status === 'loading_started') {
+      // The SSE 'state: loading' broadcast event is the authoritative signal for
+      // UI initialisation and will arrive for ALL clients (including this one)
+      // before any 'count' or 'ticket' events.  We must NOT call
+      // renderValidationTicketsStreamingInit() here because the HTTP response can
+      // arrive at any time relative to the SSE stream — calling it late would
+      // clear an accordion that already has tickets in it.
+      assignmentUIManager.setWorkflowState('tickets-loading');
+      // Do NOT call TicketRenderer.renderValidationTicketsStreamingInit() here.
+    } else if (result.status === 'already_loaded') {
+      // Cache is fresh; the broadcast connection replayed tickets on connect.
+      // If the accordion is already populated, just ensure the workflow state is correct.
+      debugLog('[MAIN] - Tickets already loaded from cache (', result.count, ')');
+      // The broadcast listener's 'complete' handler will have already set the state;
+      // guard against the edge case where it hasn't fired yet.
+      if (assignmentUIManager.getWorkflowState() !== 'tickets-loaded' &&
+          assignmentUIManager.getWorkflowState() !== 'recommendations-loading' &&
+          assignmentUIManager.getWorkflowState() !== 'recommendations-complete') {
+        assignmentUIManager.setWorkflowState('tickets-loading');
+        TicketRenderer.renderValidationTicketsStreamingInit();
+      }
     }
-  });
-
-  eventSource.addEventListener('complete', (event) => {
-    const data = JSON.parse(event.data);
-    debugLog('[MAIN] - Stream complete:', data);
-    
-    // Update final progress
-    TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
-    
-    // Set workflow state to tickets-loaded
-    assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
-    
-    eventSource.close();
-
-    // Start background polling so the list stays in sync with the live queue
-    startValidationPolling();
-  });
-
-  // Handle connection errors
-  eventSource.onerror = (error) => {
-    debugLog('[MAIN] - EventSource connection error:', error);
-    if (!hasError && loadedCount === 0) {
-      TicketRenderer.renderError('Connection error while loading validation tickets. Please try again.');
-      assignmentUIManager.setWorkflowState('idle');
-    }
-    eventSource.close();
-  };
+  } catch (error) {
+    debugLog('[MAIN] - Error triggering validation load:', error);
+    TicketRenderer.renderError('Error loading validation tickets: ' + error.message);
+    assignmentUIManager.setWorkflowState('idle');
+  }
 }
 
 /**
@@ -743,11 +727,9 @@ function _startPresenceHeartbeatCore() {
       mySessionId = generateSessionId();
       localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_SESSION_ID, mySessionId);
     }
-    myPresenceColor = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_COLOR);
-    if (!myPresenceColor) {
-      myPresenceColor = getRandomPresenceColor();
-      localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_COLOR, myPresenceColor);
-    }
+    // Color is now assigned server-side to prevent duplicates.
+    // We cache the server-assigned color in localStorage after the first heartbeat.
+    myPresenceColor = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_COLOR) || null;
   }
 
   stopPresenceHeartbeat();
@@ -918,13 +900,26 @@ async function sendPresenceHeartbeat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session_id: mySessionId,
-        color: myPresenceColor,
         display_name: myDisplayName || null
+        // Note: color is no longer sent by the client — it is assigned server-side
+        // to guarantee uniqueness across all active sessions.
       })
     });
 
     if (response.ok) {
       const data = await response.json();
+
+      // On the first successful heartbeat, read back the server-assigned color
+      // for our own session and cache it in localStorage for stable display.
+      if (!myPresenceColor && data.sessions) {
+        const mySession = data.sessions.find(s => s.session_id === mySessionId);
+        if (mySession && mySession.color) {
+          myPresenceColor = mySession.color;
+          localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_COLOR, myPresenceColor);
+          debugLog('[MAIN] - Server assigned presence color:', myPresenceColor);
+        }
+      }
+
       handlePresenceUpdate(data.sessions);
     }
   } catch (error) {
@@ -952,12 +947,42 @@ function sendPresenceLeave() {
 
 /**
  * Update the presence indicator UI with the latest session list.
+ * When DEBUG_PRESENCE_MOCK is true, the real session list is replaced with
+ * 16 synthetic sessions so the overflow badge can be tested visually.
  * @param {Array} sessions - Array of { session_id, color, label } objects
  */
 function handlePresenceUpdate(sessions) {
-  if (assignmentUIManager) {
-    assignmentUIManager.renderPresenceIndicators(sessions, mySessionId);
+  if (!assignmentUIManager) return;
+
+  let displaySessions = sessions;
+
+  if (DEBUG_PRESENCE_MOCK) {
+    const mockColors = [
+      '#0d6efd','#198754','#fd7e14','#6f42c1','#0dcaf0','#dc3545','#6610f2','#d63384',
+      '#20c997','#ffc107','#0d9488','#7c3aed','#db2777','#ea580c','#16a34a','#2563eb'
+    ];
+    const mockNames = [
+      'Alice Johnson','Bob Smith','Carol White','David Brown','Eve Davis',
+      'Frank Miller','Grace Wilson','Henry Moore','Iris Taylor','Jack Anderson',
+      'Karen Thomas','Liam Jackson','Mia Harris','Noah Martin','Olivia Lee','Paul Walker'
+    ];
+    displaySessions = mockNames.map((name, i) => ({
+      session_id: `mock-session-${i}`,
+      color: mockColors[i % mockColors.length],
+      label: name
+    }));
+    // Keep the real session at index 0 so "(you)" still appears correctly
+    if (mySessionId) {
+      displaySessions[0] = {
+        session_id: mySessionId,
+        color: myPresenceColor || mockColors[0],
+        label: myDisplayName || 'You'
+      };
+    }
+    debugLog('[MAIN] - DEBUG_PRESENCE_MOCK active: injecting', displaySessions.length, 'mock sessions');
   }
+
+  assignmentUIManager.renderPresenceIndicators(displaySessions, mySessionId);
 }
 
 // ─── End presence heartbeat ───────────────────────────────────────────────────
@@ -967,20 +992,48 @@ function handlePresenceUpdate(sessions) {
 /**
  * Start the background polling loop that checks for queue changes every
  * VALIDATION_POLL_INTERVAL milliseconds.
- * Also starts the 1-second countdown timer displayed in the header.
- * Safe to call multiple times — clears any existing intervals first.
+ *
+ * The first poll is aligned to the Unix-epoch boundary so that all connected
+ * clients fire at the same wall-clock second, regardless of when they joined.
+ * Subsequent polls use a regular setInterval anchored to that aligned tick.
+ *
+ * Safe to call multiple times — clears any existing timers first.
  */
 function startValidationPolling() {
   stopValidationPolling();
-  debugLog('[MAIN] - Starting validation ticket polling (interval:', CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL, 'ms)');
-  validationPollingInterval = setInterval(handleValidationPoll, CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL);
-  startCountdownTimer();
+
+  const interval = CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL;
+
+  // Calculate milliseconds until the next epoch-aligned tick.
+  // All clients with a reasonably synchronised clock compute the same value.
+  const msUntilNextTick = interval - (Date.now() % interval);
+  const secondsUntilNextTick = Math.max(1, Math.round(msUntilNextTick / 1000));
+
+  debugLog(
+    '[MAIN] - Starting validation polling (interval:', interval, 'ms,' ,
+    'first tick in:', msUntilNextTick, 'ms)'
+  );
+
+  // Start the countdown from the aligned offset so all clients show the same number
+  startCountdownTimer(secondsUntilNextTick);
+
+  // Fire the first poll at the aligned tick, then switch to a regular interval
+  validationAlignmentTimeout = setTimeout(() => {
+    validationAlignmentTimeout = null;
+    handleValidationPoll();
+    // From here every subsequent poll is at exact multiples of `interval`
+    validationPollingInterval = setInterval(handleValidationPoll, interval);
+  }, msUntilNextTick);
 }
 
 /**
  * Stop the background polling loop and the countdown timer.
  */
 function stopValidationPolling() {
+  if (validationAlignmentTimeout !== null) {
+    clearTimeout(validationAlignmentTimeout);
+    validationAlignmentTimeout = null;
+  }
   if (validationPollingInterval !== null) {
     clearInterval(validationPollingInterval);
     validationPollingInterval = null;
@@ -991,11 +1044,15 @@ function stopValidationPolling() {
 
 /**
  * Start (or restart) the 1-second countdown timer.
- * Resets the counter to the full poll interval and ticks down each second.
+ * @param {number} [initialSeconds] - Starting value in seconds.  Defaults to
+ *   the full poll interval so callers that don't need alignment can omit it.
  */
-function startCountdownTimer() {
+function startCountdownTimer(initialSeconds) {
   stopCountdownTimer();
-  const totalSeconds = Math.round(CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL / 1000);
+  const totalSeconds = (initialSeconds !== undefined)
+    ? initialSeconds
+    : Math.round(CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL / 1000);
+
   validationCountdownSeconds = totalSeconds;
   TicketRenderer.updateCountdownDisplay(validationCountdownSeconds);
 
@@ -1025,6 +1082,12 @@ function stopCountdownTimer() {
  */
 async function handleValidationPoll() {
   debugLog('[MAIN] - Running validation ticket poll');
+
+  // Clean up state left by the previous poll cycle before fetching fresh data:
+  // • Remove items that were already dimmed as "left queue" last cycle
+  // • Strip "New" badges from tickets that were added last cycle
+  TicketRenderer.removeLeftQueueTickets();
+  TicketRenderer.clearNewTicketBadges();
 
   const displayedIds = TicketRenderer.getDisplayedTicketIds();
   if (displayedIds.size === 0) {
@@ -1062,9 +1125,12 @@ async function handleValidationPoll() {
       }
     }
 
-    // Update the "Last checked" timestamp and reset the countdown
+    // Update the "Last checked" timestamp.
+    // The countdown resets automatically on the next epoch-aligned tick
+    // (startValidationPolling re-aligns after each poll fires via setInterval).
     TicketRenderer.updateLastCheckedTime(new Date());
-    startCountdownTimer();
+    // Re-align the countdown for the next interval so all clients stay in sync
+    startCountdownTimer(Math.round(CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL / 1000));
 
   } catch (error) {
     debugLog('[MAIN] - Poll error:', error);
@@ -1096,5 +1162,146 @@ async function fetchAndHydrateTicket(ticketId, pendingIndex) {
 }
 
 // ─── End validation queue real-time polling ───────────────────────────────────
+
+// ─── Validation broadcast listener ───────────────────────────────────────────
+
+/**
+ * Open (or reuse) the long-lived SSE connection to /api/validation-broadcast.
+ *
+ * This connection is the single channel through which all validation ticket
+ * events arrive for this client — whether triggered by this user or by any
+ * other user on a different machine.
+ *
+ * Event handling mirrors the old per-client stream handler:
+ *   state   → update UI to reflect server-side loading/idle/loaded state
+ *   count   → initialise the streaming container with the expected count
+ *   ticket  → append the ticket to the accordion
+ *   complete→ mark loading done, enable "Get recommendations", start polling
+ *   error   → log per-ticket errors or show a fatal error message
+ */
+function startValidationBroadcastListener() {
+  // Already connected — nothing to do
+  if (validationBroadcastSource &&
+      validationBroadcastSource.readyState !== EventSource.CLOSED) {
+    debugLog('[MAIN] - Broadcast listener already open');
+    return;
+  }
+
+  // Ensure we have a session ID before connecting (needed as the queue key)
+  if (!mySessionId) {
+    mySessionId = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_SESSION_ID);
+    if (!mySessionId) {
+      mySessionId = generateSessionId();
+      localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_SESSION_ID, mySessionId);
+    }
+  }
+
+  const url = `${CONSTANTS.API.VALIDATION_BROADCAST}?session_id=${encodeURIComponent(mySessionId)}`;
+  debugLog('[MAIN] - Opening validation broadcast listener:', url);
+
+  validationBroadcastSource = new EventSource(url);
+
+  let totalCount = 0;
+  let loadedCount = 0;
+
+  // ── state ──────────────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('state', (event) => {
+    const data = JSON.parse(event.data);
+    debugLog('[MAIN] - Broadcast state:', data.state);
+
+    if (data.state === 'loading') {
+      // Another user triggered a load while we were already connected
+      assignmentUIManager.setWorkflowState('tickets-loading');
+      TicketRenderer.renderValidationTicketsStreamingInit();
+      loadedCount = 0;
+      totalCount = 0;
+    }
+    // 'idle' and 'loaded' are informational on connect; 'loaded' is followed
+    // immediately by count/ticket/complete events from the cache replay.
+  });
+
+  // ── count ──────────────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('count', (event) => {
+    const data = JSON.parse(event.data);
+    totalCount = data.count;
+    debugLog('[MAIN] - Broadcast count:', totalCount);
+
+    if (totalCount === 0) {
+      TicketRenderer.renderError('No validation tickets found.');
+      assignmentUIManager.setWorkflowState('idle');
+    } else {
+      // Initialise the streaming container if not already done
+      // (may already be initialised if handleGetValidationTicketsStream ran first)
+      const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+      if (!accordion) {
+        TicketRenderer.renderValidationTicketsStreamingInit();
+      }
+      TicketRenderer.updateStreamingProgress(0, totalCount, false);
+    }
+  });
+
+  // ── ticket ─────────────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('ticket', (event) => {
+    const ticket = JSON.parse(event.data);
+    debugLog('[MAIN] - Broadcast ticket:', ticket.id);
+
+    TicketRenderer.appendValidationTicket(ticket, ticket.index);
+    loadedCount++;
+    TicketRenderer.updateStreamingProgress(loadedCount, totalCount, false);
+  });
+
+  // ── complete ───────────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('complete', (event) => {
+    const data = JSON.parse(event.data);
+    debugLog('[MAIN] - Broadcast complete:', data);
+
+    TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
+    assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
+
+    // Start background polling so the list stays in sync with the live queue
+    startValidationPolling();
+  });
+
+  // ── error ──────────────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('error', (event) => {
+    try {
+      const errorData = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast error event:', errorData);
+
+      if (errorData.ticket_id) {
+        // Per-ticket error — log and continue
+        console.warn(`[BROADCAST] Error loading ticket ${errorData.ticket_id}: ${errorData.message}`);
+      } else {
+        // Fatal server-side error
+        TicketRenderer.renderError('Error loading validation tickets: ' + errorData.message);
+        assignmentUIManager.setWorkflowState('idle');
+      }
+    } catch (e) {
+      // Unparseable error data — ignore
+    }
+  });
+
+  // ── connection error (EventSource.onerror) ─────────────────────────────────
+  validationBroadcastSource.onerror = (err) => {
+    // EventSource will auto-reconnect; only log, don't show UI error
+    debugLog('[MAIN] - Broadcast connection error (will auto-reconnect):', err);
+  };
+
+  debugLog('[MAIN] - Validation broadcast listener started');
+}
+
+/**
+ * Close the validation broadcast SSE connection.
+ * Called when the user leaves Multiple Tickets mode or the assignment section.
+ */
+function stopValidationBroadcastListener() {
+  if (validationBroadcastSource) {
+    validationBroadcastSource.close();
+    validationBroadcastSource = null;
+    debugLog('[MAIN] - Validation broadcast listener stopped');
+  }
+}
+
+// ─── End validation broadcast listener ───────────────────────────────────────
 
 console.log('Main script loaded and initialized.');
