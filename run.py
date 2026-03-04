@@ -2,6 +2,8 @@ from flask import Flask, render_template, send_from_directory, request, jsonify
 import json
 import sys
 import os
+import time
+import threading
 import concurrent.futures
 from services.athena import Athena
 from services.databricks import Databricks
@@ -71,6 +73,13 @@ def load_support_groups_from_json(ticket_type="ir"):
         return []
 
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
+
+# ── In-memory presence registry ───────────────────────────────────────────────
+_presence_lock = threading.Lock()
+_active_sessions: dict = {}   # session_id -> {last_seen, color, label}
+_session_counter = 0           # monotonically increasing label counter
+SESSION_EXPIRY_SECONDS = 60    # remove sessions silent for this long
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route('/favicon.ico')
 def favicon():
@@ -1020,6 +1029,73 @@ def api_get_validation_tickets_stream():
             'X-Accel-Buffering': 'no'  # Disable nginx buffering if present
         }
     )
+
+@app.route('/api/presence/heartbeat', methods=['POST'])
+def api_presence_heartbeat():
+    """
+    Register or refresh a viewer's presence on the validation page.
+
+    Request body: { "session_id": "<uuid>", "color": "#rrggbb" }
+    Response:     { "sessions": [ { "session_id", "color", "label" }, ... ] }
+    """
+    global _session_counter
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id', '').strip()
+    color = data.get('color', '#0d6efd').strip()
+    display_name = (data.get('display_name') or '').strip() or None
+
+    if not session_id:
+        return jsonify({'error': 'Missing session_id'}), 400
+
+    now = time.time()
+
+    with _presence_lock:
+        # Expire stale sessions first
+        stale = [sid for sid, info in _active_sessions.items()
+                 if now - info['last_seen'] > SESSION_EXPIRY_SECONDS]
+        for sid in stale:
+            del _active_sessions[sid]
+
+        # Register new session or refresh existing one
+        if session_id not in _active_sessions:
+            _session_counter += 1
+            # Use the provided display name as the label; fall back to Viewer N
+            label = display_name if display_name else f'Viewer {_session_counter}'
+            _active_sessions[session_id] = {
+                'last_seen': now,
+                'color': color,
+                'label': label
+            }
+        else:
+            _active_sessions[session_id]['last_seen'] = now
+            # Update the label if the client sends a (possibly updated) display name
+            if display_name:
+                _active_sessions[session_id]['label'] = display_name
+
+        sessions = [
+            {'session_id': sid, 'color': info['color'], 'label': info['label']}
+            for sid, info in _active_sessions.items()
+        ]
+
+    return jsonify({'sessions': sessions})
+
+
+@app.route('/api/presence/leave', methods=['POST'])
+def api_presence_leave():
+    """
+    Explicitly remove a viewer's presence (called on page unload).
+
+    Request body: { "session_id": "<uuid>" }
+    """
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id', '').strip()
+
+    if session_id:
+        with _presence_lock:
+            _active_sessions.pop(session_id, None)
+
+    return jsonify({'status': 'ok'})
+
 
 @app.route('/api/check-validation-tickets', methods=['GET'])
 def api_check_validation_tickets():

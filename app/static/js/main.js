@@ -22,6 +22,33 @@ let validationCountdownSeconds = 0;
 let nextPendingTicketIndex = 10000;
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Presence heartbeat state ─────────────────────────────────────────────────
+let presenceHeartbeatInterval = null;
+let mySessionId = null;
+let myPresenceColor = null;
+let myDisplayName = null;
+
+/** Palette of 8 distinct colors for presence circles */
+const PRESENCE_COLORS = [
+  '#0d6efd', '#198754', '#fd7e14', '#6f42c1',
+  '#0dcaf0', '#dc3545', '#6610f2', '#d63384'
+];
+
+/** Generate a UUID-v4-like random string */
+function generateSessionId() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+/** Pick a random color from the presence palette */
+function getRandomPresenceColor() {
+  return PRESENCE_COLORS[Math.floor(Math.random() * PRESENCE_COLORS.length)];
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Initialize the application when DOM is ready
  */
@@ -60,10 +87,12 @@ function initializeManagers() {
     onSwitchToSearch: () => {
       debugLog('[MAIN] - Switched to search mode callback');
       stopValidationPolling(); // Stop polling when leaving assignment/validation view
+      stopPresenceHeartbeat(); // Stop presence when leaving assignment view
     },
     onSwitchToAssignment: () => {
       debugLog('[MAIN] - Switched to assignment mode callback');
       attachAssignmentEventListeners();
+      // Presence is started only when the user switches to Multiple Tickets mode
     }
   });
 
@@ -113,11 +142,14 @@ function attachAssignmentEventListeners() {
   assignmentUIManager.attachToggleListeners(
     () => {
       debugLog('[MAIN] - Single ticket mode selected');
+      stopPresenceHeartbeat(); // Leave the validation/batch view → stop presence
     },
     () => {
       debugLog('[MAIN] - Multiple tickets mode selected');
       // Batch button listeners will be attached when batch buttons are created
       setTimeout(attachBatchButtonListeners, 0);
+      // startPresenceHeartbeat handles the name-prompt gate internally
+      startPresenceHeartbeat();
     }
   );
 
@@ -656,6 +688,279 @@ async function handleImplementAssignment() {
     }
   }
 }
+
+// ─── Presence heartbeat ───────────────────────────────────────────────────────
+
+/**
+ * Start the presence heartbeat.
+ *
+ * If the user has not yet entered a display name (stored in localStorage),
+ * a modal prompt is shown first. The actual heartbeat is only started after
+ * the user confirms their name (or if a name is already stored).
+ *
+ * Session identity is persisted in localStorage so that multiple tabs on the
+ * same browser/machine share the same session ID and appear as a single
+ * presence circle to other users.
+ */
+function startPresenceHeartbeat() {
+  // Resolve display name from localStorage
+  const storedName = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_DISPLAY_NAME);
+
+  if (!storedName) {
+    // No name stored yet — show the prompt modal.
+    // The modal's "Continue" callback will call _startPresenceHeartbeatCore().
+    showNamePromptModal(
+      (name) => {
+        myDisplayName = name;
+        _startPresenceHeartbeatCore();
+      },
+      () => {
+        // User clicked "Go back" — revert to single-ticket mode
+        if (assignmentUIManager) {
+          assignmentUIManager.setMode(CONSTANTS.MODES.SINGLE_TICKET);
+        }
+        stopPresenceHeartbeat();
+      }
+    );
+    return;
+  }
+
+  myDisplayName = storedName;
+  _startPresenceHeartbeatCore();
+}
+
+/**
+ * Internal: initialise session identity and start the heartbeat interval.
+ * Called after the display name is confirmed to be available.
+ * @private
+ */
+function _startPresenceHeartbeatCore() {
+  // Initialise session identity — stored in localStorage so all tabs on the
+  // same browser/machine share the same session ID (prevents duplicate circles).
+  if (!mySessionId) {
+    mySessionId = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_SESSION_ID);
+    if (!mySessionId) {
+      mySessionId = generateSessionId();
+      localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_SESSION_ID, mySessionId);
+    }
+    myPresenceColor = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_COLOR);
+    if (!myPresenceColor) {
+      myPresenceColor = getRandomPresenceColor();
+      localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_COLOR, myPresenceColor);
+    }
+  }
+
+  stopPresenceHeartbeat();
+
+  // Immediate heartbeat so the icon appears without waiting for the first interval
+  sendPresenceHeartbeat();
+
+  presenceHeartbeatInterval = setInterval(
+    sendPresenceHeartbeat,
+    CONSTANTS.DEFAULTS.PRESENCE_HEARTBEAT_INTERVAL
+  );
+
+  window.addEventListener('beforeunload', sendPresenceLeave);
+
+  // Send an immediate heartbeat when the tab becomes visible again after being
+  // hidden (e.g. user switches back to this tab). This recovers quickly from
+  // browser timer throttling that may have delayed the regular interval while
+  // the tab was in the background.
+  document.addEventListener('visibilitychange', _onVisibilityChange);
+
+  debugLog('[MAIN] - Presence heartbeat started, session:', mySessionId, 'name:', myDisplayName);
+}
+
+/**
+ * Show a Bootstrap modal asking the user to enter their display name.
+ * The name is saved to localStorage so the prompt only appears once per device.
+ *
+ * @param {Function} onConfirm - Called with the entered name when user clicks "Continue"
+ * @param {Function} onCancel  - Called when user clicks "Go back"
+ */
+function showNamePromptModal(onConfirm, onCancel) {
+  // Remove any existing instance
+  const existingModal = document.getElementById('presenceNameModal');
+  if (existingModal) existingModal.remove();
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'presenceNameModal';
+  modalEl.className = 'modal fade';
+  modalEl.tabIndex = -1;
+  modalEl.setAttribute('aria-labelledby', 'presenceNameModalLabel');
+  modalEl.setAttribute('aria-modal', 'true');
+  modalEl.setAttribute('role', 'dialog');
+  // Prevent dismissal by clicking the backdrop or pressing Escape
+  modalEl.setAttribute('data-bs-backdrop', 'static');
+  modalEl.setAttribute('data-bs-keyboard', 'false');
+
+  modalEl.innerHTML = `
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="presenceNameModalLabel">
+            <i class="bi bi-person-badge me-2"></i>Identify yourself
+          </h5>
+        </div>
+        <div class="modal-body">
+          <p class="mb-3">
+            To use the multiple-ticket view, please enter your name. This helps
+            your colleagues see who is currently working in the queue.
+            Your name will be saved on this device so you won't be asked again.
+          </p>
+          <p class="text-muted small mb-3">
+            To change your name later, clear your browser's local storage for this site.
+          </p>
+          <input
+            type="text"
+            id="presenceNameInput"
+            class="form-control"
+            placeholder="Your name (e.g. Jane Smith)"
+            maxlength="60"
+            autocomplete="name"
+          />
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="presenceNameGoBack" class="btn btn-secondary">
+            Go back
+          </button>
+          <button type="button" id="presenceNameContinue" class="btn btn-primary" disabled>
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+
+  const bsModal = new bootstrap.Modal(modalEl);
+
+  const nameInput = modalEl.querySelector('#presenceNameInput');
+  const continueBtn = modalEl.querySelector('#presenceNameContinue');
+  const goBackBtn = modalEl.querySelector('#presenceNameGoBack');
+
+  // Enable Continue only when at least 1 non-whitespace character is typed
+  nameInput.addEventListener('input', () => {
+    continueBtn.disabled = nameInput.value.trim().length === 0;
+  });
+
+  // Allow Enter key to submit when Continue is enabled
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !continueBtn.disabled) {
+      continueBtn.click();
+    }
+  });
+
+  continueBtn.addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (!name) return;
+    localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_DISPLAY_NAME, name);
+    bsModal.hide();
+    modalEl.addEventListener('hidden.bs.modal', () => {
+      modalEl.remove();
+      if (onConfirm) onConfirm(name);
+    }, { once: true });
+  });
+
+  goBackBtn.addEventListener('click', () => {
+    bsModal.hide();
+    modalEl.addEventListener('hidden.bs.modal', () => {
+      modalEl.remove();
+      if (onCancel) onCancel();
+    }, { once: true });
+  });
+
+  bsModal.show();
+
+  // Autofocus the input after the modal animation completes
+  modalEl.addEventListener('shown.bs.modal', () => {
+    nameInput.focus();
+  }, { once: true });
+}
+
+/**
+ * Stop the presence heartbeat and notify the server that this viewer has left.
+ */
+function stopPresenceHeartbeat() {
+  if (presenceHeartbeatInterval !== null) {
+    clearInterval(presenceHeartbeatInterval);
+    presenceHeartbeatInterval = null;
+  }
+  sendPresenceLeave();
+  window.removeEventListener('beforeunload', sendPresenceLeave);
+  document.removeEventListener('visibilitychange', _onVisibilityChange);
+  debugLog('[MAIN] - Presence heartbeat stopped');
+}
+
+/**
+ * Visibility change handler: send an immediate heartbeat whenever the tab
+ * becomes visible. This compensates for browser timer throttling that can
+ * delay the regular setInterval while the tab is in the background.
+ */
+function _onVisibilityChange() {
+  if (document.visibilityState === 'visible' && mySessionId) {
+    debugLog('[MAIN] - Tab became visible, sending immediate presence heartbeat');
+    sendPresenceHeartbeat();
+  }
+}
+
+/**
+ * POST a heartbeat to the server and update the presence indicators with the
+ * returned list of active sessions.
+ */
+async function sendPresenceHeartbeat() {
+  if (!mySessionId) return;
+
+  try {
+    const response = await fetch(CONSTANTS.API.PRESENCE_HEARTBEAT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: mySessionId,
+        color: myPresenceColor,
+        display_name: myDisplayName || null
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      handlePresenceUpdate(data.sessions);
+    }
+  } catch (error) {
+    debugLog('[MAIN] - Presence heartbeat error:', error);
+  }
+}
+
+/**
+ * Notify the server that this viewer is leaving.
+ * Uses sendBeacon for reliability during page unload.
+ */
+function sendPresenceLeave() {
+  if (!mySessionId) return;
+
+  const payload = JSON.stringify({ session_id: mySessionId });
+  try {
+    navigator.sendBeacon(
+      CONSTANTS.API.PRESENCE_LEAVE,
+      new Blob([payload], { type: 'application/json' })
+    );
+  } catch (e) {
+    // sendBeacon may not be available in all environments; fail silently
+  }
+}
+
+/**
+ * Update the presence indicator UI with the latest session list.
+ * @param {Array} sessions - Array of { session_id, color, label } objects
+ */
+function handlePresenceUpdate(sessions) {
+  if (assignmentUIManager) {
+    assignmentUIManager.renderPresenceIndicators(sessions, mySessionId);
+  }
+}
+
+// ─── End presence heartbeat ───────────────────────────────────────────────────
 
 // ─── Validation queue real-time polling ──────────────────────────────────────
 

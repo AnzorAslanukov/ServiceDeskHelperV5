@@ -394,6 +394,43 @@ class AssignmentUIManager {
   }
 
   /**
+   * Render presence indicator circles in the toggle row.
+   * Each session is shown as a colored circle with a person icon.
+   * The current user's circle gets a distinct outline ring.
+   * @param {Array} sessions - Array of { session_id, color, label } objects
+   * @param {string} mySessionId - The current user's session ID
+   */
+  renderPresenceIndicators(sessions, mySessionId) {
+    const container = document.getElementById('presence-indicators');
+    if (!container) return;
+
+    if (!sessions || sessions.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    let html = '';
+    sessions.forEach(session => {
+      const isMe = session.session_id === mySessionId;
+      const meClass = isMe ? ' presence-indicator-me' : '';
+      const label = `${session.label}${isMe ? ' (you)' : ''}`;
+      html += `
+        <div class="presence-indicator${meClass}"
+             style="background-color: ${session.color};"
+             data-bs-toggle="tooltip"
+             data-bs-placement="bottom"
+             title="${label}">
+          <i class="bi bi-person-fill"></i>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+    initializeTooltips('#presence-indicators [data-bs-toggle="tooltip"]');
+    debugLog('[ASSIGNMENT_UI] - Rendered', sessions.length, 'presence indicator(s)');
+  }
+
+  /**
    * Remove assignment toggle buttons from DOM
    */
   remove() {
@@ -414,14 +451,20 @@ class AssignmentUIManager {
 
     const assignmentToggleDiv = document.createElement('div');
     assignmentToggleDiv.id = 'assignment-toggle-container';
-    assignmentToggleDiv.className = 'd-flex justify-content-center align-items-center mb-4';
+    // Use justify-content-between so the toggle buttons stay centred and
+    // the presence indicators sit flush to the right edge.
+    assignmentToggleDiv.className = 'd-flex justify-content-between align-items-center mb-4';
     assignmentToggleDiv.innerHTML = `
-      <button id="${CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE}" class="btn single-ticket-btn rounded-circle" aria-label="Single Ticket Toggle" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${CONSTANTS.TOOLTIPS.SINGLE_TICKET}">
-        <img id="${CONSTANTS.SELECTORS.SINGLE_TICKET_ICON}" src="/static/images/single_ticket_icon_on_light.svg" alt="Single Ticket Toggle" class="img-fluid">
-      </button>
-      <button id="${CONSTANTS.SELECTORS.MULTIPLE_TICKETS_TOGGLE}" class="btn multiple-tickets-btn rounded-circle" aria-label="Multiple Tickets Toggle" style="margin-left: 0.5rem;" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${CONSTANTS.TOOLTIPS.MULTIPLE_TICKETS}">
-        <img id="${CONSTANTS.SELECTORS.MULTIPLE_TICKETS_ICON}" src="/static/images/multiple_tickets_icon_off_light.svg" alt="Multiple Tickets Toggle" class="img-fluid">
-      </button>
+      <div class="flex-grow-1"></div>
+      <div class="d-flex align-items-center gap-2">
+        <button id="${CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE}" class="btn single-ticket-btn rounded-circle" aria-label="Single Ticket Toggle" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${CONSTANTS.TOOLTIPS.SINGLE_TICKET}">
+          <img id="${CONSTANTS.SELECTORS.SINGLE_TICKET_ICON}" src="/static/images/single_ticket_icon_on_light.svg" alt="Single Ticket Toggle" class="img-fluid">
+        </button>
+        <button id="${CONSTANTS.SELECTORS.MULTIPLE_TICKETS_TOGGLE}" class="btn multiple-tickets-btn rounded-circle" aria-label="Multiple Tickets Toggle" style="margin-left: 0.5rem;" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${CONSTANTS.TOOLTIPS.MULTIPLE_TICKETS}">
+          <img id="${CONSTANTS.SELECTORS.MULTIPLE_TICKETS_ICON}" src="/static/images/multiple_tickets_icon_off_light.svg" alt="Multiple Tickets Toggle" class="img-fluid">
+        </button>
+      </div>
+      <div id="presence-indicators" class="d-flex align-items-center gap-1 flex-grow-1 justify-content-end pe-1"></div>
     `;
 
     const targetElement = insertAfterElement || document.querySelector(this.mainContentSelector);
@@ -503,7 +546,9 @@ class AssignmentUIManager {
    */
   _createBatchButtons() {
     const mainContent = document.querySelector(this.mainContentSelector);
-    const toggleButtons = mainContent?.querySelector('.d-flex.justify-content-center.align-items-center.mb-4');
+    // The toggle container now uses justify-content-between, so look for it by ID
+    const toggleButtons = document.getElementById('assignment-toggle-container')
+      || mainContent?.querySelector('#assignment-toggle-container');
 
     if (!toggleButtons) return;
 
