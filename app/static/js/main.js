@@ -427,14 +427,18 @@ async function handleGetValidationTicketsStream() {
     debugLog('[MAIN] - Trigger response:', result);
 
     if (result.status === 'loading' || result.status === 'loading_started') {
-      // The SSE 'state: loading' broadcast event is the authoritative signal for
-      // UI initialisation and will arrive for ALL clients (including this one)
-      // before any 'count' or 'ticket' events.  We must NOT call
-      // renderValidationTicketsStreamingInit() here because the HTTP response can
-      // arrive at any time relative to the SSE stream — calling it late would
-      // clear an accordion that already has tickets in it.
       assignmentUIManager.setWorkflowState('tickets-loading');
-      // Do NOT call TicketRenderer.renderValidationTicketsStreamingInit() here.
+      // Initialize the streaming UI immediately from the HTTP response.
+      // This is the primary initializer for the user who clicked the button.
+      // The SSE 'state: loading' event handles the same for OTHER connected
+      // clients (who didn't click the button).
+      // Guard: only initialize if the accordion doesn't already exist — this
+      // prevents wiping tickets that may have already arrived via SSE before
+      // the HTTP response was processed (extremely unlikely but safe to guard).
+      const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+      if (!accordion) {
+        TicketRenderer.renderValidationTicketsStreamingInit();
+      }
     } else if (result.status === 'already_loaded') {
       // Cache is fresh; the broadcast connection replayed tickets on connect.
       // If the accordion is already populated, just ensure the workflow state is correct.
@@ -1204,17 +1208,89 @@ function startValidationBroadcastListener() {
   let totalCount = 0;
   let loadedCount = 0;
 
+  // ── Watchdog timer ─────────────────────────────────────────────────────────
+  // If no 'ticket' or 'complete' event arrives within WATCHDOG_MS milliseconds
+  // after loading starts, the connection is considered stuck.  We close it and
+  // reopen it so that the server's mid-load buffer is replayed from the point
+  // we left off.  The deduplication guard in appendValidationTicket() ensures
+  // tickets already in the accordion are not added a second time.
+  const WATCHDOG_MS = 30_000;   // 30 s — reconnect quickly if events stop arriving
+  let watchdogTimer = null;
+  // Timer that fires if all expected tickets have arrived but 'complete' has not.
+  // Guards against the 'complete' event being lost (e.g. due to a reconnect race).
+  let completionFallbackTimer = null;
+
+  function _resetWatchdog() {
+    if (watchdogTimer !== null) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
+  }
+
+  function _startWatchdog() {
+    _resetWatchdog();
+    watchdogTimer = setTimeout(() => {
+      debugLog('[MAIN] - Watchdog fired: no ticket/complete event for', WATCHDOG_MS, 'ms — reconnecting');
+      // Close the stale connection and reopen it.  The server will replay the
+      // mid-load buffer so we catch up on any tickets we missed.
+      if (validationBroadcastSource) {
+        validationBroadcastSource.close();
+        validationBroadcastSource = null;
+      }
+      startValidationBroadcastListener();
+    }, WATCHDOG_MS);
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Schedule a fallback completion if 'complete' doesn't arrive within 5 s of
+   * all expected tickets being received.  This handles the case where the
+   * 'complete' SSE event is lost due to a network drop or a server-side race
+   * condition on reconnect.
+   *
+   * Safe to call multiple times — only one timer is ever pending at a time.
+   * The timer is cancelled automatically when 'complete' arrives normally.
+   */
+  function _scheduleCompletionFallback() {
+    if (completionFallbackTimer !== null) return;  // already scheduled
+    completionFallbackTimer = setTimeout(() => {
+      completionFallbackTimer = null;
+      if (assignmentUIManager.getWorkflowState() === 'tickets-loading') {
+        debugLog('[MAIN] - Completion fallback: forcing tickets-loaded (complete event was lost)');
+        _resetWatchdog();
+        TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
+        assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
+        startValidationPolling();
+      }
+    }, 5000);
+  }
+
   // ── state ──────────────────────────────────────────────────────────────────
   validationBroadcastSource.addEventListener('state', (event) => {
     const data = JSON.parse(event.data);
     debugLog('[MAIN] - Broadcast state:', data.state);
 
     if (data.state === 'loading') {
-      // Another user triggered a load while we were already connected
+      // Another user triggered a load while we were already connected,
+      // OR this client reconnected while the server was mid-load.
       assignmentUIManager.setWorkflowState('tickets-loading');
-      TicketRenderer.renderValidationTicketsStreamingInit();
+      // Guard: only wipe the DOM if the accordion doesn't already exist.
+      // On a watchdog-triggered reconnect the accordion may already contain
+      // partially-loaded tickets; destroying it would cause the stuck-loading
+      // loop where the same tickets are fetched and wiped repeatedly.
+      const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+      if (!accordion) {
+        TicketRenderer.renderValidationTicketsStreamingInit();
+      }
       loadedCount = 0;
       totalCount = 0;
+      // Cancel any completion fallback from a previous load cycle
+      if (completionFallbackTimer !== null) {
+        clearTimeout(completionFallbackTimer);
+        completionFallbackTimer = null;
+      }
+      // Start watchdog — we expect ticket events to follow shortly
+      _startWatchdog();
     }
     // 'idle' and 'loaded' are informational on connect; 'loaded' is followed
     // immediately by count/ticket/complete events from the cache replay.
@@ -1227,6 +1303,7 @@ function startValidationBroadcastListener() {
     debugLog('[MAIN] - Broadcast count:', totalCount);
 
     if (totalCount === 0) {
+      _resetWatchdog();
       TicketRenderer.renderError('No validation tickets found.');
       assignmentUIManager.setWorkflowState('idle');
     } else {
@@ -1237,6 +1314,8 @@ function startValidationBroadcastListener() {
         TicketRenderer.renderValidationTicketsStreamingInit();
       }
       TicketRenderer.updateStreamingProgress(0, totalCount, false);
+      // Start (or reset) the watchdog now that we know tickets are expected
+      _startWatchdog();
     }
   });
 
@@ -1248,12 +1327,26 @@ function startValidationBroadcastListener() {
     TicketRenderer.appendValidationTicket(ticket, ticket.index);
     loadedCount++;
     TicketRenderer.updateStreamingProgress(loadedCount, totalCount, false);
+    // Each arriving ticket resets the watchdog deadline
+    _startWatchdog();
+    // If all expected tickets have arrived, schedule a fallback in case the
+    // 'complete' event is lost (e.g. due to a server-side reconnect race).
+    if (totalCount > 0 && loadedCount >= totalCount) {
+      _scheduleCompletionFallback();
+    }
   });
 
   // ── complete ───────────────────────────────────────────────────────────────
   validationBroadcastSource.addEventListener('complete', (event) => {
     const data = JSON.parse(event.data);
     debugLog('[MAIN] - Broadcast complete:', data);
+
+    // Loading finished — watchdog and completion fallback are no longer needed
+    _resetWatchdog();
+    if (completionFallbackTimer !== null) {
+      clearTimeout(completionFallbackTimer);
+      completionFallbackTimer = null;
+    }
 
     TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
     assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
@@ -1269,10 +1362,13 @@ function startValidationBroadcastListener() {
       debugLog('[MAIN] - Broadcast error event:', errorData);
 
       if (errorData.ticket_id) {
-        // Per-ticket error — log and continue
+        // Per-ticket error — a ticket failed but loading continues; reset watchdog
         console.warn(`[BROADCAST] Error loading ticket ${errorData.ticket_id}: ${errorData.message}`);
+        loadedCount++;
+        _startWatchdog();
       } else {
         // Fatal server-side error
+        _resetWatchdog();
         TicketRenderer.renderError('Error loading validation tickets: ' + errorData.message);
         assignmentUIManager.setWorkflowState('idle');
       }

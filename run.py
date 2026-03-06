@@ -1437,12 +1437,40 @@ def _do_validation_fetch():
     Background thread: fetch all validation tickets from Athena and broadcast
     each one to every connected client as it arrives.
 
+    Tickets are fetched in PARALLEL using a ThreadPoolExecutor so that a
+    single slow or hanging Athena call does not block all subsequent tickets.
+    Each worker creates its own Athena instance to avoid token-sharing races.
+
+    A total_timeout of 5 minutes caps the entire operation; any ticket whose
+    fetch has not completed by then is reported as an error event.  The
+    executor is shut down with wait=False so that lingering threads (e.g. an
+    Athena call that has not yet hit its own 30-second socket timeout) do not
+    block the broadcast from completing.
+
     Updates _validation_state / _validation_tickets / _validation_fetched_at.
     """
     global _validation_state, _validation_tickets, _validation_fetched_at
     output = Output()
 
+    # ── Tuning knobs ──────────────────────────────────────────────────────────
+    MAX_WORKERS   = 8    # concurrent Athena connections
+    TOTAL_TIMEOUT = 300  # seconds before the entire fetch is abandoned
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _fetch_one(args):
+        """Fetch a single ticket; each call gets its own Athena instance."""
+        index, ticket_id = args
+        try:
+            a = Athena()
+            ticket_data = a.get_ticket_data(ticket_number=ticket_id, view=True)
+            if ticket_data and ticket_data.get('result'):
+                return (index, ticket_id, ticket_data['result'][0], None)
+            return (index, ticket_id, None, 'Failed to fetch ticket data')
+        except Exception as exc:
+            return (index, ticket_id, None, str(exc))
+
     try:
+        # Get the list of ticket IDs first (this call is still sequential)
         athena = Athena()
         ticket_ids = athena.get_validation_tickets()
 
@@ -1457,30 +1485,62 @@ def _do_validation_fetch():
 
         total = len(ticket_ids)
         if DEBUG:
-            output.add_line(f'_do_validation_fetch: fetching {total} tickets')
+            output.add_line(f'_do_validation_fetch: fetching {total} tickets '
+                            f'(parallel, {MAX_WORKERS} workers)')
 
         _broadcast_validation_event('count', {'count': total})
 
         fetched: list = []
-        for index, ticket_id in enumerate(ticket_ids):
-            try:
-                ticket_data = athena.get_ticket_data(ticket_number=ticket_id, view=True)
-                if ticket_data and ticket_data.get('result'):
-                    ticket = ticket_data['result'][0]
-                    vt = _format_validation_ticket(ticket, index)
-                    fetched.append(vt)
-                    _broadcast_validation_event('ticket', vt)
-                    if DEBUG:
-                        output.add_line(f'_do_validation_fetch: broadcast ticket {index + 1}/{total}: {ticket_id}')
-                else:
+
+        # Do NOT use a 'with' block — shutdown(wait=True) would block until
+        # every thread finishes, including any that are hanging on Athena.
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS)
+        future_to_args = {
+            executor.submit(_fetch_one, (i, tid)): (i, tid)
+            for i, tid in enumerate(ticket_ids)
+        }
+
+        try:
+            for future in concurrent.futures.as_completed(
+                    future_to_args, timeout=TOTAL_TIMEOUT):
+                i, tid = future_to_args[future]
+                try:
+                    index, ticket_id, ticket, err = future.result()
+                    if ticket:
+                        vt = _format_validation_ticket(ticket, index)
+                        fetched.append(vt)
+                        _broadcast_validation_event('ticket', vt)
+                        if DEBUG:
+                            output.add_line(
+                                f'_do_validation_fetch: broadcast ticket {ticket_id} '
+                                f'(index {index})'
+                            )
+                    else:
+                        _broadcast_validation_event('error', {
+                            'index': index, 'ticket_id': ticket_id,
+                            'message': err or 'Failed to fetch ticket data'
+                        })
+                except Exception as exc:
                     _broadcast_validation_event('error', {
-                        'index': index, 'ticket_id': ticket_id,
-                        'message': 'Failed to fetch ticket data'
+                        'index': i, 'ticket_id': tid, 'message': str(exc)
                     })
-            except Exception as e:
-                _broadcast_validation_event('error', {
-                    'index': index, 'ticket_id': ticket_id, 'message': str(e)
-                })
+
+        except concurrent.futures.TimeoutError:
+            # Total timeout exceeded — mark remaining futures as timed out
+            for future, (i, tid) in future_to_args.items():
+                if not future.done():
+                    output.add_line(
+                        f'_do_validation_fetch: timeout waiting for ticket {tid}'
+                    )
+                    _broadcast_validation_event('error', {
+                        'index': i, 'ticket_id': tid,
+                        'message': 'Timeout: Athena did not respond in time'
+                    })
+
+        finally:
+            # Release the executor without waiting for any lingering threads.
+            # Athena's own 30-second socket timeout will clean them up.
+            executor.shutdown(wait=False)
 
         with _validation_lock:
             _validation_state = 'loaded'
@@ -1610,15 +1670,26 @@ def api_validation_broadcast():
             # ── Relay broadcast events ────────────────────────────────────────
             while True:
                 try:
-                    msg = client_queue.get(timeout=30)
+                    msg = client_queue.get(timeout=10)
                     yield f"event: {msg['event']}\ndata: {json.dumps(msg['data'])}\n\n"
                 except _queue_module.Empty:
-                    # Send SSE keepalive comment to prevent proxy timeouts
+                    # Send SSE keepalive comment every 10 s to prevent proxy /
+                    # load-balancer idle-connection timeouts (most enterprise
+                    # proxies drop idle connections after 60 s).
                     yield ': keepalive\n\n'
 
         finally:
             with _validation_lock:
-                _validation_clients.pop(session_id, None)
+                # Only remove this session's queue if it still points to THIS
+                # generator's queue object.  A client that reconnected with the
+                # same session_id will have already registered a new queue; we
+                # must not evict it when this (old) generator finally exits.
+                # Without this guard the old generator's cleanup races with the
+                # new connection's registration and can silently drop the new
+                # client from _validation_clients, causing it to never receive
+                # the 'complete' event and leaving the UI stuck at loading.
+                if _validation_clients.get(session_id) is client_queue:
+                    _validation_clients.pop(session_id, None)
             if DEBUG:
                 output = Output()
                 output.add_line(f'api_validation_broadcast: client {session_id[:8]}… disconnected')

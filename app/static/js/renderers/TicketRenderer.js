@@ -178,10 +178,32 @@ class TicketRenderer {
     }
 
     if (progressSpan) {
+      // Cancel any pending hide timeout from a previous completion so that a
+      // new load cycle always starts with the span fully visible.
+      if (progressSpan._hideTimeout) {
+        clearTimeout(progressSpan._hideTimeout);
+        progressSpan._hideTimeout = null;
+        progressSpan.style.transition = '';
+        progressSpan.style.opacity = '1';
+      }
+
       if (isComplete) {
         progressSpan.innerHTML = `<i class="bi bi-check-circle text-success me-2"></i>${loadedCount} tickets loaded`;
         progressSpan.classList.remove('text-muted');
         progressSpan.classList.add('text-success');
+
+        // Fade out and hide the message after 10 seconds
+        progressSpan._hideTimeout = setTimeout(() => {
+          progressSpan.style.transition = 'opacity 0.6s ease';
+          progressSpan.style.opacity = '0';
+          // Clear content after the fade animation completes
+          setTimeout(() => {
+            progressSpan.innerHTML = '';
+            progressSpan.style.transition = '';
+            progressSpan.style.opacity = '1';
+            progressSpan._hideTimeout = null;
+          }, 650);
+        }, 10000);
       } else {
         progressSpan.innerHTML = `
           <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
@@ -205,6 +227,13 @@ class TicketRenderer {
     const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
     if (!accordion) {
       debugLog('[RENDERER] - Validation accordion not found, cannot append ticket');
+      return;
+    }
+
+    // Deduplicate: skip if a ticket with this ID is already in the accordion.
+    // This prevents duplicate items when the SSE buffer is replayed on reconnect.
+    if (ticket.id && accordion.querySelector(`[data-ticket-id="${ticket.id}"]`)) {
+      debugLog('[RENDERER] - Skipping duplicate ticket:', ticket.id);
       return;
     }
 

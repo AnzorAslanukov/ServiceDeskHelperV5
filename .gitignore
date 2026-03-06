@@ -12,3 +12,4 @@ SKILL.md
 /__pycache__
 /services/__pycache__
 /app/static/static_test
+/process_summaries/
