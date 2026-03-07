@@ -219,15 +219,15 @@ class AssignmentUIManager {
         break;
 
       case 'tickets-loading':
-        // Loading validation tickets - disable Get Validation Tickets
+        // Loading validation tickets - disable Get Validation Tickets with spinner
         this._setGetValidationTicketsButtonState(false, true);
         this.disableRecommendationsButton();
         this.disableImplementButton();
         break;
 
       case 'tickets-loaded':
-        // Tickets loaded - enable Get Recommendations
-        this._setGetValidationTicketsButtonState(true);
+        // Tickets are in memory — lock the fetch button permanently until the view resets
+        this._setGetValidationTicketsButtonState(false, false, true);
         this.enableRecommendationsButton();
         this.disableImplementButton();
         this.totalTickets = data.totalTickets || 0;
@@ -235,15 +235,15 @@ class AssignmentUIManager {
         break;
 
       case 'recommendations-loading':
-        // Processing recommendations - disable Get Recommendations
-        this._setGetValidationTicketsButtonState(true);
+        // Processing recommendations — keep fetch button locked, disable Get Recommendations
+        this._setGetValidationTicketsButtonState(false, false, true);
         this._setGetRecommendationsButtonState(false, true);
         this.disableImplementButton();
         break;
 
       case 'recommendations-complete':
-        // All recommendations complete - enable Implement Assignment
-        this._setGetValidationTicketsButtonState(true);
+        // All recommendations complete — keep fetch button locked, enable Implement Assignment
+        this._setGetValidationTicketsButtonState(false, false, true);
         this._setGetRecommendationsButtonState(true);
         this.enableImplementButton();
         break;
@@ -276,18 +276,77 @@ class AssignmentUIManager {
   }
 
   /**
-   * Set Get Validation Tickets button state
+   * Set Get Validation Tickets button state.
+   *
+   * Three mutually-exclusive modes:
+   *   enabled=true            → normal interactive button
+   *   loading=true            → disabled with a spinner (tickets are being fetched)
+   *   loaded=true             → disabled permanently; wrapper shows not-allowed cursor
+   *                             and a Bootstrap tooltip explaining why it is locked
+   *
+   * @param {boolean} enabled  - Whether the button should be interactive
+   * @param {boolean} loading  - Show a loading spinner (takes priority over loaded)
+   * @param {boolean} loaded   - Tickets already in memory; show not-allowed cursor + tooltip
    * @private
    */
-  _setGetValidationTicketsButtonState(enabled, loading = false) {
-    const btn = document.getElementById(CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN);
+  _setGetValidationTicketsButtonState(enabled, loading = false, loaded = false) {
+    const btn     = document.getElementById(CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN);
+    const wrapper = document.getElementById(CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN_WRAPPER);
     if (!btn) return;
 
-    btn.disabled = !enabled;
-    
+    // Tear down any existing tooltip on the button itself first.
+    // Bootstrap 5 attaches tooltips to the element, so we must dispose before
+    // removing attributes to avoid orphaned tooltip DOM nodes.
+    const existingBtnTooltip = bootstrap.Tooltip.getInstance(btn);
+    if (existingBtnTooltip) existingBtnTooltip.dispose();
+    btn.removeAttribute('data-bs-toggle');
+    btn.removeAttribute('data-bs-placement');
+    btn.removeAttribute('title');
+
+    // Also clean up any wrapper-level tooltip from a previous implementation.
+    if (wrapper) {
+      const existingWrapperTooltip = bootstrap.Tooltip.getInstance(wrapper);
+      if (existingWrapperTooltip) existingWrapperTooltip.dispose();
+      wrapper.removeAttribute('data-bs-toggle');
+      wrapper.removeAttribute('data-bs-placement');
+      wrapper.removeAttribute('title');
+      wrapper.style.cursor = '';
+    }
+
+    // Reset button style overrides
+    btn.style.pointerEvents = '';
+    btn.style.cursor = '';
+
     if (loading) {
+      btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading...';
+    } else if (loaded) {
+      // Tickets are in memory — lock the button until the view is reset.
+      btn.disabled = true;
+
+      // Bootstrap 5 CSS sets pointer-events:none on .btn:disabled, which would
+      // prevent cursor changes and tooltip hover events.  An inline style has
+      // higher specificity than any CSS rule, so setting pointer-events:auto
+      // here restores hover events while the button remains functionally
+      // disabled (HTML disabled attribute still blocks click events).
+      btn.style.pointerEvents = 'auto';
+      btn.style.cursor = 'not-allowed';
+      btn.innerHTML = 'Get validation tickets';
+
+      // Attach the tooltip directly to the button — it now receives hover
+      // events because pointer-events:auto is set above.
+      btn.setAttribute('data-bs-toggle', 'tooltip');
+      btn.setAttribute('data-bs-placement', 'top');
+      btn.setAttribute('title', 'All validation tickets have been successfully loaded');
+      new bootstrap.Tooltip(btn);
+
+      // Mirror the not-allowed cursor on the wrapper span so the cursor is
+      // consistent even in the small gap between the button and the span edge.
+      if (wrapper) {
+        wrapper.style.cursor = 'not-allowed';
+      }
     } else {
+      btn.disabled = !enabled;
       btn.innerHTML = 'Get validation tickets';
     }
   }
@@ -613,7 +672,12 @@ class AssignmentUIManager {
   }
 
   /**
-   * Create the batch workflow buttons
+   * Create the batch workflow buttons.
+   *
+   * The "Get validation tickets" button is wrapped in a <span> so that a
+   * Bootstrap tooltip can be attached to the wrapper when the button is
+   * disabled (disabled elements do not receive pointer events, so tooltips
+   * must be placed on a sighted parent element instead).
    * @private
    */
   _createBatchButtons() {
@@ -628,9 +692,11 @@ class AssignmentUIManager {
     this.batchButtonsContainer.id = CONSTANTS.SELECTORS.BATCH_WORKFLOW_BUTTONS;
     this.batchButtonsContainer.className = 'd-flex justify-content-center align-items-center gap-3 mb-4';
     this.batchButtonsContainer.innerHTML = `
-      <button id="${CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN}" class="btn btn-primary btn-lg" type="button">
-        Get validation tickets
-      </button>
+      <span id="${CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN_WRAPPER}" style="display: inline-block;">
+        <button id="${CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN}" class="btn btn-primary btn-lg" type="button">
+          Get validation tickets
+        </button>
+      </span>
       <button id="${CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN}" class="btn btn-secondary btn-lg" type="button" disabled>
         Get ticket recommendations
       </button>
@@ -641,8 +707,17 @@ class AssignmentUIManager {
 
     toggleButtons.insertAdjacentElement('afterend', this.batchButtonsContainer);
     
-    // Initialize workflow state after creating buttons
-    this.setWorkflowState('idle');
+    // Initialize workflow state after creating buttons.
+    // If the validation accordion already contains tickets (e.g. loaded by
+    // another user while this client was in Single Ticket mode, or cached
+    // from a previous session), jump straight to 'tickets-loaded' so the
+    // "Get validation tickets" button is correctly locked.
+    const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+    if (accordion && accordion.children.length > 0) {
+      this.setWorkflowState('tickets-loaded', { totalTickets: accordion.children.length });
+    } else {
+      this.setWorkflowState('idle');
+    }
   }
 
   /**

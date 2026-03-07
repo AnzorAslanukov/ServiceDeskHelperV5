@@ -427,7 +427,16 @@ async function handleGetValidationTicketsStream() {
     debugLog('[MAIN] - Trigger response:', result);
 
     if (result.status === 'loading' || result.status === 'loading_started') {
-      assignmentUIManager.setWorkflowState('tickets-loading');
+      // Guard: only set tickets-loading if the SSE 'complete' event hasn't
+      // already advanced the workflow past this point.  Because the POST and
+      // the SSE stream travel on separate connections, the 'complete' event
+      // can arrive before the HTTP response when the load finishes quickly.
+      const currentState = assignmentUIManager.getWorkflowState();
+      if (currentState !== 'tickets-loaded' &&
+          currentState !== 'recommendations-loading' &&
+          currentState !== 'recommendations-complete') {
+        assignmentUIManager.setWorkflowState('tickets-loading');
+      }
       // Initialize the streaming UI immediately from the HTTP response.
       // This is the primary initializer for the user who clicked the button.
       // The SSE 'state: loading' event handles the same for OTHER connected
@@ -1258,7 +1267,11 @@ function startValidationBroadcastListener() {
       if (assignmentUIManager.getWorkflowState() === 'tickets-loading') {
         debugLog('[MAIN] - Completion fallback: forcing tickets-loaded (complete event was lost)');
         _resetWatchdog();
-        TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
+        try {
+          TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
+        } catch (e) {
+          debugLog('[MAIN] - Error in updateStreamingProgress during fallback:', e);
+        }
         assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
         startValidationPolling();
       }
@@ -1348,7 +1361,11 @@ function startValidationBroadcastListener() {
       completionFallbackTimer = null;
     }
 
-    TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
+    try {
+      TicketRenderer.updateStreamingProgress(loadedCount, totalCount, true);
+    } catch (e) {
+      debugLog('[MAIN] - Error in updateStreamingProgress during complete:', e);
+    }
     assignmentUIManager.setWorkflowState('tickets-loaded', { totalTickets: loadedCount });
 
     // Start background polling so the list stays in sync with the live queue

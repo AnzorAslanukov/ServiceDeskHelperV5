@@ -41,6 +41,7 @@ const CONSTANTS = {
 
     // Batch workflow
     GET_VALIDATION_TICKETS_BTN: 'get-validation-tickets-btn',
+    GET_VALIDATION_TICKETS_BTN_WRAPPER: 'get-validation-tickets-btn-wrapper',
     GET_RECOMMENDATIONS_BTN: 'get-ticket-recommendations-btn',
     IMPLEMENT_ASSIGNMENT_BTN: 'implement-ticket-assignment-btn',
     BATCH_PROGRESS_INDICATOR: 'batch-progress-indicator',
