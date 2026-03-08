@@ -783,6 +783,71 @@ body {
   border-color: var(--border-color);
 }
 
+/* ── Recommendation toggle button ────────────────────────────────────────── */
+
+/* OFF state: outline style — border only, muted appearance */
+.recommendation-toggle-off {
+  background-color: transparent !important;
+  border: 2px solid #0d6efd !important;
+  color: #0d6efd !important;
+  transition: all 0.3s ease;
+}
+
+.recommendation-toggle-off:hover:not(:disabled) {
+  background-color: rgba(13, 110, 253, 0.08) !important;
+}
+
+/* ON state: solid fill — full bright color */
+.recommendation-toggle-on {
+  background-color: #0d6efd !important;
+  border: 2px solid #0d6efd !important;
+  color: #ffffff !important;
+  transition: all 0.3s ease;
+}
+
+.recommendation-toggle-on:hover:not(:disabled) {
+  background-color: #0b5ed7 !important;
+  border-color: #0b5ed7 !important;
+}
+
+/* Disabled state: grayed out, not clickable */
+.recommendation-toggle-disabled {
+  background-color: #6c757d !important;
+  border: 2px solid #6c757d !important;
+  color: #ffffff !important;
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Dark mode adjustments */
+[data-bs-theme="dark"] .recommendation-toggle-off {
+  border-color: #6ea8fe !important;
+  color: #6ea8fe !important;
+}
+
+[data-bs-theme="dark"] .recommendation-toggle-off:hover:not(:disabled) {
+  background-color: rgba(110, 168, 254, 0.12) !important;
+}
+
+[data-bs-theme="dark"] .recommendation-toggle-on {
+  background-color: #0d6efd !important;
+  border-color: #0d6efd !important;
+  color: #ffffff !important;
+}
+
+[data-bs-theme="dark"] .recommendation-toggle-on:hover:not(:disabled) {
+  background-color: #3d8bfd !important;
+  border-color: #3d8bfd !important;
+}
+
+[data-bs-theme="dark"] .recommendation-toggle-disabled {
+  background-color: #495057 !important;
+  border-color: #495057 !important;
+  color: #adb5bd !important;
+}
+
+/* ── End recommendation toggle button ────────────────────────────────────── */
+
 /* ── Presence indicators ─────────────────────────────────────────────────── */
 
 #presence-indicators {

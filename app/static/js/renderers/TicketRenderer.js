@@ -1401,6 +1401,34 @@ class TicketRenderer {
   }
 
   /**
+   * Show a "polling paused" message in place of the countdown timer.
+   * Called when polling is paused during recommendation processing.
+   * The message is automatically replaced when polling resumes and
+   * updateCountdownDisplay() is called again.
+   */
+  static showPollingPausedMessage() {
+    let countdownEl = document.getElementById('validation-poll-countdown');
+
+    if (!countdownEl) {
+      // Create the element and attach it after the last-checked span
+      const lastCheckedEl = document.getElementById('validation-last-checked');
+      const progressSpan = document.getElementById('streaming-progress');
+      const anchor = lastCheckedEl || progressSpan;
+
+      if (anchor) {
+        countdownEl = document.createElement('span');
+        countdownEl.id = 'validation-poll-countdown';
+        countdownEl.className = 'text-muted small ms-2';
+        anchor.insertAdjacentElement('afterend', countdownEl);
+      }
+    }
+
+    if (countdownEl) {
+      countdownEl.textContent = '· Queue checking paused during recommendations';
+    }
+  }
+
+  /**
    * Create or update the polling countdown element in the validation header.
    * Displays "· Next check in Xs" next to the last-checked timestamp.
    * Pass null to hide/remove the countdown (e.g. when polling stops).

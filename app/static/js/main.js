@@ -43,6 +43,15 @@ let myDisplayName = null;
  */
 const DEBUG_PRESENCE_MOCK = false;
 
+/**
+ * DEBUG: set to true to use dummy recommendation data instead of calling
+ * the real LLM pipeline. This allows rapid UI testing of the "Get ticket
+ * recommendations" workflow without waiting for the text generation model.
+ * Requires tests/dummy_recommendations.js to be loaded (see index.html).
+ * Set back to false for normal operation.
+ */
+const DEBUG_DUMMY_RECOMMENDATIONS = true;
+
 /** Generate a UUID-v4-like random string */
 function generateSessionId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -468,11 +477,61 @@ async function handleGetValidationTicketsStream() {
   }
 }
 
+// ─── Recommendation toggle cancellation flag ─────────────────────────────────
+let _recommendationCancelled = false;
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Handle get ticket recommendations button click (batch processing)
+ * Handle get ticket recommendations button click (toggle behavior).
+ *
+ * Acts as a push-button toggle:
+ *   OFF → ON:  Starts recommendation processing for all loaded tickets.
+ *   ON  → OFF: Stops new processing, preserves existing recommendations,
+ *              resumes polling, keeps Implement button enabled if any
+ *              recommendations have been generated.
  */
 async function handleGetRecommendations() {
-  debugLog('[MAIN] - Get ticket recommendations clicked');
+  debugLog('[MAIN] - Get ticket recommendations toggle clicked');
+
+  // ── Toggle OFF path ────────────────────────────────────────────────────────
+  if (assignmentUIManager.isRecommendationToggleActive()) {
+    debugLog('[MAIN] - Toggling recommendations OFF');
+
+    // Signal cancellation to any in-flight processing loop
+    _recommendationCancelled = true;
+
+    // Update toggle visual to OFF
+    assignmentUIManager.setRecommendationToggleState(false);
+
+    // Hide the processing progress indicator
+    assignmentUIManager.hideRecommendationProgress();
+
+    // Resume polling (it was paused when toggle was turned ON)
+    startValidationPolling();
+
+    // If any recommendations were already generated, keep the Implement
+    // button enabled and leave the workflow in a usable state.
+    // Check if at least one recommendation container has content.
+    const hasAnyRecommendation = document.querySelector(
+      '[id^="recommendations-"] .card, [id^="recommendations-"] .support-group-selector'
+    );
+    if (hasAnyRecommendation) {
+      // Enable Implement button directly without going through setWorkflowState
+      // (which would re-activate the toggle). Keep workflow at a usable state.
+      assignmentUIManager.enableImplementButton();
+      // Manually set the workflow state string without triggering button updates
+      assignmentUIManager.workflowState = 'recommendations-complete';
+    } else {
+      // No recommendations generated yet — revert to tickets-loaded
+      assignmentUIManager.setWorkflowState('tickets-loaded');
+    }
+
+    debugLog('[MAIN] - Recommendations toggled OFF');
+    return;
+  }
+
+  // ── Toggle ON path ─────────────────────────────────────────────────────────
+  debugLog('[MAIN] - Toggling recommendations ON');
 
   // Check if validation tickets are displayed
   const validationAccordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
@@ -491,8 +550,15 @@ async function handleGetRecommendations() {
 
   debugLog('[MAIN] - Found', ticketItems.length, 'tickets to process');
 
-  // Set workflow state to recommendations-loading
+  // Clear cancellation flag
+  _recommendationCancelled = false;
+
+  // Set workflow state to recommendations-loading (sets toggle to ON visually)
   assignmentUIManager.setWorkflowState('recommendations-loading');
+
+  // Pause polling during recommendation processing to avoid interference
+  stopValidationPolling();
+  TicketRenderer.showPollingPausedMessage();
   
   // Track if checkboxes have been shown (show after first recommendation)
   let checkboxesShown = false;
@@ -500,57 +566,100 @@ async function handleGetRecommendations() {
   // Show initial progress
   assignmentUIManager.showRecommendationProgress(1, ticketItems.length, ticketItems[0].id);
 
-  // Process tickets in batches
+  // ── Dummy recommendation mode ──────────────────────────────────────────────
+  if (DEBUG_DUMMY_RECOMMENDATIONS) {
+    debugLog('[MAIN] - DEBUG_DUMMY_RECOMMENDATIONS active: using dummy data');
+
+    const DUMMY_DELAY_MS = 150;
+
+    for (let i = 0; i < ticketItems.length; i++) {
+      // Check cancellation before processing each ticket
+      if (_recommendationCancelled) {
+        debugLog('[MAIN] - [DUMMY] Recommendation processing cancelled at ticket', i + 1);
+        break;
+      }
+
+      const item = ticketItems[i];
+
+      assignmentUIManager.showRecommendationProgress(i + 1, ticketItems.length, item.id);
+
+      const dummyData = getDummyRecommendation(item.id, item.index);
+
+      TicketRenderer.renderRecommendations(dummyData, true, item.index);
+      TicketRenderer.storeRecommendationData(item.index, dummyData);
+
+      if (!checkboxesShown) {
+        TicketRenderer.showTicketCheckboxes();
+        checkboxesShown = true;
+      }
+
+      assignmentUIManager.updateRecommendationProgress(i + 1, ticketItems.length);
+
+      debugLog('[MAIN] - [DUMMY] Rendered recommendation for ticket', item.id);
+
+      if (i < ticketItems.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, DUMMY_DELAY_MS));
+      }
+    }
+
+    // Only show completion and resume polling if NOT cancelled
+    if (!_recommendationCancelled) {
+      assignmentUIManager.showRecommendationComplete(ticketItems.length);
+      startValidationPolling();
+      debugLog('[MAIN] - [DUMMY] All dummy recommendations complete');
+    }
+    return;
+  }
+  // ── End dummy recommendation mode ──────────────────────────────────────────
+
+  // Process tickets in batches (real LLM pipeline)
   let completedCount = 0;
   
   await batchProcessor.processTickets(ticketItems, {
     onTicketStart: (item, current, total) => {
-      // Update progress when starting a new ticket
+      if (_recommendationCancelled) return;
       assignmentUIManager.showRecommendationProgress(current, total, item.id);
     },
     onProgress: (completed, total) => {
-      // Progress is now handled in onTicketStart for better UX
       debugLog('[MAIN] - Progress:', completed, 'of', total);
     },
     onTicketComplete: (item, data) => {
       completedCount++;
+      if (_recommendationCancelled) return;
       
-      // Render the recommendation immediately when received
       TicketRenderer.renderRecommendations(data, true, item.index);
-      
-      // Store the recommendation data for later use when implementing assignments
       TicketRenderer.storeRecommendationData(item.index, data);
       
-      // Show checkboxes after the first recommendation is received
       if (!checkboxesShown) {
         TicketRenderer.showTicketCheckboxes();
         checkboxesShown = true;
       }
       
-      // Update workflow progress
       assignmentUIManager.updateRecommendationProgress(completedCount, ticketItems.length);
       
       debugLog('[MAIN] - Rendered and stored recommendation for ticket', item.id);
     },
     onError: (item, error) => {
       completedCount++;
+      if (_recommendationCancelled) return;
+      
       const errorData = { error: error.message || 'Failed to get recommendations' };
       TicketRenderer.renderRecommendations(errorData, true, item.index);
       
-      // Still update progress even on error
       assignmentUIManager.updateRecommendationProgress(completedCount, ticketItems.length);
       
-      // Show checkboxes even if there was an error (so user can select other tickets)
       if (!checkboxesShown) {
         TicketRenderer.showTicketCheckboxes();
         checkboxesShown = true;
       }
     },
     onComplete: () => {
-      // Show completion message
-      assignmentUIManager.showRecommendationComplete(ticketItems.length);
-      
-      debugLog('[MAIN] - All recommendations complete');
+      // Only show completion and resume polling if NOT cancelled
+      if (!_recommendationCancelled) {
+        assignmentUIManager.showRecommendationComplete(ticketItems.length);
+        startValidationPolling();
+        debugLog('[MAIN] - All recommendations complete');
+      }
     }
   });
 }

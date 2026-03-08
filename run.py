@@ -93,6 +93,15 @@ _validation_load_buffer: list = []  # events broadcast during the current load s
 VALIDATION_CACHE_TTL = 300      # seconds before a re-fetch is allowed
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Recommendation engine state ───────────────────────────────────────────────
+_recommendation_lock = threading.Lock()
+_recommendation_cache: dict = {}       # ticket_id -> full recommendation dict
+_recommendation_toggle: bool = False   # whether auto-recommend is active
+_recommendation_processing: set = set()  # ticket_ids currently being processed
+_recommendation_stop_event = threading.Event()  # signal to stop processing new tickets
+RECOMMENDATION_MAX_WORKERS = 3         # concurrent LLM recommendation threads
+# ─────────────────────────────────────────────────────────────────────────────
+
 # 30 visually distinct colors for presence circles.
 # Colors are assigned server-side to guarantee no two active sessions share a color.
 PRESENCE_COLORS = [
@@ -132,6 +141,11 @@ PRESENCE_COLORS = [
 @app.route('/favicon.ico')
 def favicon():
     return send_from_directory(app.static_folder, 'images/upenn_logo_simplified.ico')
+
+@app.route('/tests/<path:filename>')
+def serve_test_file(filename):
+    """Serve files from the tests/ directory (used for debug/test JS files)."""
+    return send_from_directory('tests', filename)
 
 @app.route('/')
 def index():
@@ -1187,16 +1201,43 @@ def api_check_validation_tickets():
 
         current_set = set(current_ids)
 
+        left_queue = list(displayed_ids - current_set)
+        new_in_queue = list(current_set - displayed_ids)
+
         result = {
             'still_in_queue': list(displayed_ids & current_set),
-            'left_queue':     list(displayed_ids - current_set),
-            'new_in_queue':   list(current_set - displayed_ids)
+            'left_queue':     left_queue,
+            'new_in_queue':   new_in_queue
         }
+
+        # Clean up recommendation cache for tickets that left the queue
+        if left_queue:
+            with _recommendation_lock:
+                for tid in left_queue:
+                    _recommendation_cache.pop(tid, None)
+                    _recommendation_processing.discard(tid)
+            if DEBUG:
+                output.add_line(
+                    f"check-validation-tickets: purged {len(left_queue)} "
+                    f"recommendation(s) for tickets that left the queue"
+                )
+
+        # Auto-queue recommendations for new tickets if the toggle is ON
+        if new_in_queue:
+            with _recommendation_lock:
+                toggle_on = _recommendation_toggle
+            if toggle_on:
+                _queue_recommendations_for_tickets(new_in_queue)
+                if DEBUG:
+                    output.add_line(
+                        f"check-validation-tickets: auto-queued {len(new_in_queue)} "
+                        f"new ticket(s) for recommendation processing"
+                    )
 
         if DEBUG:
             output.add_line(
                 f"check-validation-tickets: displayed={len(displayed_ids)}, "
-                f"left={len(result['left_queue'])}, new={len(result['new_in_queue'])}"
+                f"left={len(left_queue)}, new={len(new_in_queue)}"
             )
 
         return jsonify(result)
@@ -1655,6 +1696,16 @@ def api_validation_broadcast():
                 for ticket in cached_tickets:
                     yield f"event: ticket\ndata: {json.dumps(ticket)}\n\n"
                 yield f"event: complete\ndata: {json.dumps({'count': len(cached_tickets)})}\n\n"
+
+                # Replay recommendation state for late-joining clients
+                with _recommendation_lock:
+                    rec_toggle = _recommendation_toggle
+                    rec_cache = dict(_recommendation_cache)
+                yield f"event: recommendation-toggle\ndata: {json.dumps({'active': rec_toggle})}\n\n"
+                for tid, rec_data in rec_cache.items():
+                    yield f"event: recommendation-complete\ndata: {json.dumps({'ticket_id': tid, 'data': rec_data})}\n\n"
+                if rec_cache:
+                    yield f"event: recommendation-progress\ndata: {json.dumps({'completed': len(rec_cache), 'total': len(cached_tickets)})}\n\n"
             elif current_state == 'loading':
                 # Send the loading state indicator first
                 yield f"event: state\ndata: {json.dumps({'state': 'loading'})}\n\n"
@@ -1705,6 +1756,279 @@ def api_validation_broadcast():
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── Recommendation engine helpers ─────────────────────────────────────────────
+
+def _process_single_recommendation(ticket_id):
+    """
+    Process a single ticket recommendation via the LLM pipeline and broadcast
+    the result to all connected clients.
+
+    Thread-safe: checks _recommendation_cache and _recommendation_processing
+    under the lock before starting work.  Skips silently if the ticket already
+    has a cached recommendation or is currently being processed.
+
+    Respects _recommendation_stop_event: if the stop event is set before
+    processing begins, the ticket is skipped.
+    """
+    output = Output()
+
+    # Check stop event before starting expensive work
+    if _recommendation_stop_event.is_set():
+        return
+
+    with _recommendation_lock:
+        if ticket_id in _recommendation_cache:
+            return  # Already have a recommendation
+        if ticket_id in _recommendation_processing:
+            return  # Already being processed by another thread
+        _recommendation_processing.add(ticket_id)
+
+    try:
+        # Broadcast that we're starting this ticket
+        _broadcast_validation_event('recommendation-start', {
+            'ticket_id': ticket_id
+        }, _buffer=False)
+
+        if DEBUG:
+            output.add_line(f'_process_single_recommendation: starting {ticket_id}')
+
+        # Run the heavy LLM pipeline
+        result = get_ticket_advice(ticket_id)
+
+        # Check stop event again — if toggled off mid-processing, still cache
+        # the result (work is already done) but don't start new ones.
+
+        if result and 'error' not in result:
+            with _recommendation_lock:
+                _recommendation_cache[ticket_id] = result
+
+            _broadcast_validation_event('recommendation-complete', {
+                'ticket_id': ticket_id,
+                'data': result
+            }, _buffer=False)
+
+            if DEBUG:
+                output.add_line(f'_process_single_recommendation: completed {ticket_id}')
+        else:
+            error_msg = (result.get('error', 'Unknown error') if result
+                         else 'No result returned')
+            _broadcast_validation_event('recommendation-error', {
+                'ticket_id': ticket_id,
+                'error': error_msg
+            }, _buffer=False)
+
+            if DEBUG:
+                output.add_line(f'_process_single_recommendation: error for {ticket_id}: {error_msg}')
+
+    except Exception as exc:
+        _broadcast_validation_event('recommendation-error', {
+            'ticket_id': ticket_id,
+            'error': str(exc)
+        }, _buffer=False)
+        if DEBUG:
+            output.add_line(f'_process_single_recommendation: exception for {ticket_id}: {exc}')
+
+    finally:
+        with _recommendation_lock:
+            _recommendation_processing.discard(ticket_id)
+
+        # Broadcast progress update
+        with _recommendation_lock:
+            cached_count = len(_recommendation_cache)
+        with _validation_lock:
+            total_tickets = len(_validation_tickets)
+        _broadcast_validation_event('recommendation-progress', {
+            'completed': cached_count,
+            'total': total_tickets
+        }, _buffer=False)
+
+
+def _do_recommendation_processing(ticket_ids):
+    """
+    Background thread: process recommendations for the given ticket IDs using
+    a ThreadPoolExecutor with controlled concurrency.
+
+    Stops submitting new work when _recommendation_stop_event is set, but
+    allows in-flight requests to complete (their results are still cached).
+    """
+    output = Output()
+    if DEBUG:
+        output.add_line(f'_do_recommendation_processing: starting for {len(ticket_ids)} tickets')
+
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=RECOMMENDATION_MAX_WORKERS
+    )
+    futures = {}
+
+    try:
+        for tid in ticket_ids:
+            if _recommendation_stop_event.is_set():
+                if DEBUG:
+                    output.add_line('_do_recommendation_processing: stop event set, halting submissions')
+                break
+            with _recommendation_lock:
+                if tid in _recommendation_cache or tid in _recommendation_processing:
+                    continue
+            future = executor.submit(_process_single_recommendation, tid)
+            futures[future] = tid
+
+        # Wait for submitted futures to complete (or timeout)
+        for future in concurrent.futures.as_completed(futures, timeout=600):
+            try:
+                future.result()
+            except Exception as exc:
+                tid = futures[future]
+                if DEBUG:
+                    output.add_line(f'_do_recommendation_processing: future error for {tid}: {exc}')
+
+    except concurrent.futures.TimeoutError:
+        if DEBUG:
+            output.add_line('_do_recommendation_processing: total timeout exceeded')
+
+    finally:
+        executor.shutdown(wait=False)
+        if DEBUG:
+            output.add_line('_do_recommendation_processing: finished')
+
+
+def _queue_recommendations_for_tickets(ticket_ids):
+    """
+    Start a background thread to process recommendations for the given ticket IDs.
+    Only processes tickets that are not already cached or in-progress.
+    """
+    # Filter out tickets that already have recommendations or are being processed
+    with _recommendation_lock:
+        ids_to_process = [
+            tid for tid in ticket_ids
+            if tid not in _recommendation_cache and tid not in _recommendation_processing
+        ]
+
+    if ids_to_process:
+        _recommendation_stop_event.clear()
+        threading.Thread(
+            target=_do_recommendation_processing,
+            args=(ids_to_process,),
+            daemon=True
+        ).start()
+
+    return ids_to_process
+
+
+@app.route('/api/toggle-recommendations', methods=['POST'])
+def api_toggle_recommendations():
+    """
+    Toggle the recommendation engine on or off.
+
+    When toggled ON:
+    - Processes all loaded validation tickets that don't have recommendations yet.
+    - Future new tickets (detected by polling) will be auto-processed.
+
+    When toggled OFF:
+    - Stops submitting new tickets for processing.
+    - In-flight recommendations complete and are cached.
+    - Existing cached recommendations are preserved.
+
+    Request body: { "active": true/false }  (optional — defaults to toggling)
+    Response:     { "active": true/false, "cached": N, "total": N, "processing": N }
+    """
+    global _recommendation_toggle
+    output = Output()
+
+    data = request.get_json(silent=True) or {}
+    # If 'active' is explicitly provided, use it; otherwise toggle
+    if 'active' in data:
+        active = bool(data['active'])
+    else:
+        with _recommendation_lock:
+            active = not _recommendation_toggle
+
+    with _recommendation_lock:
+        _recommendation_toggle = active
+
+    # Broadcast toggle state to all connected clients
+    _broadcast_validation_event('recommendation-toggle', {
+        'active': active
+    }, _buffer=False)
+
+    if active:
+        # Get all loaded ticket IDs and start processing those without recommendations
+        with _validation_lock:
+            loaded_tickets = list(_validation_tickets)
+
+        ticket_ids = [t['id'] for t in loaded_tickets]
+        ids_queued = _queue_recommendations_for_tickets(ticket_ids)
+
+        # Broadcast initial progress
+        with _recommendation_lock:
+            cached_count = len(_recommendation_cache)
+        total = len(loaded_tickets)
+        _broadcast_validation_event('recommendation-progress', {
+            'completed': cached_count,
+            'total': total
+        }, _buffer=False)
+
+        if DEBUG:
+            output.add_line(
+                f'api_toggle_recommendations: ON — {len(ids_queued)} tickets queued, '
+                f'{cached_count} already cached, {total} total'
+            )
+    else:
+        # Signal the processing threads to stop submitting new work
+        _recommendation_stop_event.set()
+
+        if DEBUG:
+            output.add_line('api_toggle_recommendations: OFF — stop event set')
+
+    with _recommendation_lock:
+        cached_count = len(_recommendation_cache)
+        processing_count = len(_recommendation_processing)
+
+    with _validation_lock:
+        total_count = len(_validation_tickets)
+
+    return jsonify({
+        'active': active,
+        'cached': cached_count,
+        'total': total_count,
+        'processing': processing_count
+    })
+
+
+@app.route('/api/recommendation-state', methods=['GET'])
+def api_recommendation_state():
+    """
+    Return the current recommendation engine state and all cached recommendations.
+
+    Used by clients on page load / reconnect to restore recommendation UI state
+    without re-running the LLM pipeline.
+
+    Response:
+    {
+        "active": true/false,
+        "cache": { "IR12345": { ...recommendation data... }, ... },
+        "processing": ["IR12346", ...],
+        "total": N
+    }
+    """
+    with _recommendation_lock:
+        cache_copy = dict(_recommendation_cache)
+        processing_list = list(_recommendation_processing)
+        toggle_state = _recommendation_toggle
+
+    with _validation_lock:
+        total_count = len(_validation_tickets)
+
+    return jsonify({
+        'active': toggle_state,
+        'cache': cache_copy,
+        'processing': processing_list,
+        'total': total_count
+    })
+
+
+# ── End recommendation engine helpers ─────────────────────────────────────────
 
 
 def _warm_up_warehouse():

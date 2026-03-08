@@ -85,7 +85,9 @@ const CONSTANTS = {
     TRIGGER_VALIDATION_LOAD: '/api/trigger-validation-load',
     VALIDATION_BROADCAST: '/api/validation-broadcast',
     PRESENCE_HEARTBEAT: '/api/presence/heartbeat',
-    PRESENCE_LEAVE: '/api/presence/leave'
+    PRESENCE_LEAVE: '/api/presence/leave',
+    TOGGLE_RECOMMENDATIONS: '/api/toggle-recommendations',
+    RECOMMENDATION_STATE: '/api/recommendation-state'
   },
 
   // Default configuration values

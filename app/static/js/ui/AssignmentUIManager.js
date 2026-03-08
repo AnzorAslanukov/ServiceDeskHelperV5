@@ -16,6 +16,9 @@ class AssignmentUIManager {
     this.workflowState = 'idle'; // 'idle' | 'tickets-loaded' | 'recommendations-complete'
     this.totalTickets = 0;
     this.completedRecommendations = 0;
+
+    // Recommendation toggle state
+    this.recommendationToggleActive = false;
   }
 
   /**
@@ -154,27 +157,106 @@ class AssignmentUIManager {
   }
 
   /**
-   * Enable the recommendations button after validation tickets are loaded
+   * Enable the recommendations button in its current toggle visual state.
+   * If the toggle is active (ON), shows the ON visual; otherwise shows OFF visual.
    */
   enableRecommendationsButton() {
     const btn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
-    if (btn) {
-      btn.disabled = false;
-      btn.classList.remove('btn-secondary');
-      btn.classList.add('btn-primary');
+    if (!btn) return;
+    btn.disabled = false;
+    this._applyRecommendationToggleVisual(btn);
+  }
+
+  /**
+   * Disable the recommendations button (grayed out, not clickable).
+   * Resets the toggle state to OFF.
+   */
+  disableRecommendationsButton() {
+    const btn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
+    if (!btn) return;
+    btn.disabled = true;
+    this.recommendationToggleActive = false;
+    // Remove all toggle classes and apply disabled style
+    btn.classList.remove('btn-primary', 'btn-secondary',
+      'recommendation-toggle-off', 'recommendation-toggle-on');
+    btn.classList.add('recommendation-toggle-disabled');
+    btn.innerHTML = 'Get ticket recommendations';
+    this._updateRecommendationTooltip(btn, 'disabled');
+  }
+
+  /**
+   * Get whether the recommendation toggle is currently active (ON).
+   * @returns {boolean}
+   */
+  isRecommendationToggleActive() {
+    return this.recommendationToggleActive;
+  }
+
+  /**
+   * Set the recommendation toggle to a specific state and update visuals.
+   * @param {boolean} active - Whether the toggle should be ON (true) or OFF (false)
+   */
+  setRecommendationToggleState(active) {
+    this.recommendationToggleActive = active;
+    const btn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
+    if (!btn || btn.disabled) return;
+    this._applyRecommendationToggleVisual(btn);
+  }
+
+  /**
+   * Apply the correct CSS class and tooltip to the recommendation button
+   * based on the current toggle state.
+   * @param {HTMLElement} btn - The recommendation button element
+   * @private
+   */
+  _applyRecommendationToggleVisual(btn) {
+    // Strip all possible state classes
+    btn.classList.remove('btn-primary', 'btn-secondary',
+      'recommendation-toggle-off', 'recommendation-toggle-on',
+      'recommendation-toggle-disabled');
+
+    if (this.recommendationToggleActive) {
+      btn.classList.add('recommendation-toggle-on');
+      this._updateRecommendationTooltip(btn, 'on');
+    } else {
+      btn.classList.add('recommendation-toggle-off');
+      this._updateRecommendationTooltip(btn, 'off');
     }
   }
 
   /**
-   * Disable the recommendations button
+   * Update the Bootstrap tooltip on the recommendation toggle button.
+   *
+   * @param {HTMLElement} btn - The recommendation button element
+   * @param {'on'|'off'|'disabled'} state - Current toggle state
+   * @private
    */
-  disableRecommendationsButton() {
-    const btn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
-    if (btn) {
-      btn.disabled = true;
-      btn.classList.remove('btn-primary');
-      btn.classList.add('btn-secondary');
+  _updateRecommendationTooltip(btn, state) {
+    // Dispose any existing tooltip first
+    const existing = bootstrap.Tooltip.getInstance(btn);
+    if (existing) existing.dispose();
+
+    let title = '';
+    switch (state) {
+      case 'off':
+        title = 'Click to enable AI-generated recommendations for validation tickets';
+        break;
+      case 'on':
+        title = 'Click to turn off AI-generated recommendations for validation tickets';
+        break;
+      case 'disabled':
+        title = '';
+        // Remove tooltip attributes when disabled — no tooltip needed
+        btn.removeAttribute('data-bs-toggle');
+        btn.removeAttribute('data-bs-placement');
+        btn.removeAttribute('title');
+        return;
     }
+
+    btn.setAttribute('data-bs-toggle', 'tooltip');
+    btn.setAttribute('data-bs-placement', 'top');
+    btn.setAttribute('title', title);
+    new bootstrap.Tooltip(btn);
   }
 
   /**
@@ -235,16 +317,20 @@ class AssignmentUIManager {
         break;
 
       case 'recommendations-loading':
-        // Processing recommendations — keep fetch button locked, disable Get Recommendations
+        // Processing recommendations — keep fetch button locked
+        // Toggle is ON and button stays enabled (user can click to toggle OFF)
         this._setGetValidationTicketsButtonState(false, false, true);
-        this._setGetRecommendationsButtonState(false, true);
+        this.recommendationToggleActive = true;
+        this._setGetRecommendationsButtonState(true, true);
         this.disableImplementButton();
         break;
 
       case 'recommendations-complete':
         // All recommendations complete — keep fetch button locked, enable Implement Assignment
+        // Toggle stays ON; button stays enabled (user can click to toggle OFF)
         this._setGetValidationTicketsButtonState(false, false, true);
-        this._setGetRecommendationsButtonState(true);
+        this.recommendationToggleActive = true;
+        this._setGetRecommendationsButtonState(true, false);
         this.enableImplementButton();
         break;
 
@@ -352,7 +438,14 @@ class AssignmentUIManager {
   }
 
   /**
-   * Set Get Recommendations button state
+   * Set Get Recommendations button state with toggle-aware visuals.
+   *
+   * When enabled, the button uses the toggle visual (ON or OFF) based on
+   * this.recommendationToggleActive.  When loading, a spinner is shown
+   * inside the ON-state button.
+   *
+   * @param {boolean} enabled  - Whether the button should be clickable
+   * @param {boolean} loading  - Show a spinner (button remains clickable so user can toggle OFF)
    * @private
    */
   _setGetRecommendationsButtonState(enabled, loading = false) {
@@ -360,11 +453,16 @@ class AssignmentUIManager {
     if (!btn) return;
 
     btn.disabled = !enabled;
-    
+
     if (loading) {
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Processing...';
     } else {
       btn.innerHTML = 'Get ticket recommendations';
+    }
+
+    // Apply the toggle visual (ON/OFF) whenever the button is enabled
+    if (enabled) {
+      this._applyRecommendationToggleVisual(btn);
     }
   }
 
@@ -438,17 +536,40 @@ class AssignmentUIManager {
   }
 
   /**
-   * Show completion message for recommendations
+   * Show completion message for recommendations.
+   * The message is displayed for 10 seconds and then fades out automatically.
    * @param {number} total - Total number of tickets processed
    */
   showRecommendationComplete(total) {
     const progressContainer = document.getElementById('recommendation-progress-container');
     if (progressContainer) {
+      // Cancel any pending fade-out from a previous completion cycle
+      if (progressContainer._recommendationHideTimeout) {
+        clearTimeout(progressContainer._recommendationHideTimeout);
+        progressContainer._recommendationHideTimeout = null;
+        progressContainer.style.transition = '';
+        progressContainer.style.opacity = '1';
+      }
+
       progressContainer.innerHTML = `
         <i class="bi bi-check-circle text-success"></i>
         <span class="text-success small">${total} recommendations complete</span>
       `;
       progressContainer.classList.remove('d-none');
+
+      // Fade out and hide the message after 10 seconds
+      progressContainer._recommendationHideTimeout = setTimeout(() => {
+        progressContainer.style.transition = 'opacity 0.6s ease';
+        progressContainer.style.opacity = '0';
+        // Clear content after the fade animation completes
+        setTimeout(() => {
+          progressContainer.innerHTML = '';
+          progressContainer.classList.add('d-none');
+          progressContainer.style.transition = '';
+          progressContainer.style.opacity = '1';
+          progressContainer._recommendationHideTimeout = null;
+        }, 650);
+      }, 10000);
     }
   }
 
