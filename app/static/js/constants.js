@@ -87,7 +87,8 @@ const CONSTANTS = {
     PRESENCE_HEARTBEAT: '/api/presence/heartbeat',
     PRESENCE_LEAVE: '/api/presence/leave',
     TOGGLE_RECOMMENDATIONS: '/api/toggle-recommendations',
-    RECOMMENDATION_STATE: '/api/recommendation-state'
+    RECOMMENDATION_STATE: '/api/recommendation-state',
+    SUPPORT_GROUP_NAMES: '/api/support-group-names'
   },
 
   // Default configuration values

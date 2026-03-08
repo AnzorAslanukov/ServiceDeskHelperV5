@@ -52,6 +52,29 @@ const DEBUG_PRESENCE_MOCK = false;
  */
 const DEBUG_DUMMY_RECOMMENDATIONS = true;
 
+// ─── Support group names cache ───────────────────────────────────────────────
+let _supportGroupNamesCache = null;
+
+/**
+ * Fetch and cache the list of all support group names from the server.
+ * Returns the cached array on subsequent calls.
+ * @returns {Promise<string[]>} Sorted array of support group names
+ */
+async function getSupportGroupNames() {
+  if (_supportGroupNamesCache) return _supportGroupNamesCache;
+  try {
+    const response = await fetch(CONSTANTS.API.SUPPORT_GROUP_NAMES);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    _supportGroupNamesCache = await response.json();
+    debugLog('[MAIN] - Loaded', _supportGroupNamesCache.length, 'support group names');
+    return _supportGroupNamesCache;
+  } catch (error) {
+    debugLog('[MAIN] - Error fetching support group names:', error);
+    return [];
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 /** Generate a UUID-v4-like random string */
 function generateSessionId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -707,10 +730,20 @@ async function handleImplementAssignment() {
       continue;
     }
 
-    // Get the selected support group from the support group radio buttons (name starts with sg-selector-batch)
-    const sgRadioName = `sg-selector-batch-${ticket.index}`;
-    const selectedSGRadio = recommendationsContainer.querySelector(`input[name="${sgRadioName}"]:checked`);
-    const selectedSupportGroup = selectedSGRadio ? selectedSGRadio.value : null;
+    // Check for manual support group selection first (takes priority over AI recommendations)
+    const manualSgInput = recommendationsContainer.querySelector(`input[name="manual-sg-batch-${ticket.index}"]`);
+    const manualSgValue = manualSgInput ? manualSgInput.value.trim() : '';
+
+    let selectedSupportGroup;
+    if (manualSgValue) {
+      // Manual selection takes priority
+      selectedSupportGroup = manualSgValue;
+    } else {
+      // Fall back to AI recommendation radio buttons
+      const sgRadioName = `sg-selector-batch-${ticket.index}`;
+      const selectedSGRadio = recommendationsContainer.querySelector(`input[name="${sgRadioName}"]:checked`);
+      selectedSupportGroup = selectedSGRadio ? selectedSGRadio.value : null;
+    }
 
     // Get the selected priority from the priority radio buttons (name starts with priority-selector-batch)
     const priorityRadioName = `priority-selector-batch-${ticket.index}`;

@@ -551,11 +551,18 @@ class AssignmentUIManager {
         progressContainer.style.opacity = '1';
       }
 
+      // Remove and re-add the expiry timer bar class to restart the CSS animation
+      progressContainer.classList.remove('expiry-timer-bar');
+
       progressContainer.innerHTML = `
         <i class="bi bi-check-circle text-success"></i>
         <span class="text-success small">${total} recommendations complete</span>
       `;
       progressContainer.classList.remove('d-none');
+
+      // Force a reflow so the animation restarts cleanly when the class is re-added
+      void progressContainer.offsetWidth;
+      progressContainer.classList.add('expiry-timer-bar');
 
       // Fade out and hide the message after 10 seconds
       progressContainer._recommendationHideTimeout = setTimeout(() => {
@@ -565,6 +572,7 @@ class AssignmentUIManager {
         setTimeout(() => {
           progressContainer.innerHTML = '';
           progressContainer.classList.add('d-none');
+          progressContainer.classList.remove('expiry-timer-bar');
           progressContainer.style.transition = '';
           progressContainer.style.opacity = '1';
           progressContainer._recommendationHideTimeout = null;

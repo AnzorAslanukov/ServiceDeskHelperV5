@@ -2031,6 +2031,19 @@ def api_recommendation_state():
 # ── End recommendation engine helpers ─────────────────────────────────────────
 
 
+@app.route('/api/support-group-names', methods=['GET'])
+def api_support_group_names():
+    """Return a sorted list of all support group names for the manual selector dropdown."""
+    try:
+        keywords_path = os.path.join(os.path.dirname(__file__), 'services', 'support_group_keywords.json')
+        with open(keywords_path, 'r', encoding='utf-8') as f:
+            groups = json.load(f)
+        names = sorted([g['name'] for g in groups if 'name' in g])
+        return jsonify(names)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 def _warm_up_warehouse():
     """
     Start the Databricks SQL warehouse in the background at app startup.

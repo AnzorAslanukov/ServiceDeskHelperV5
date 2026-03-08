@@ -540,6 +540,112 @@ body {
   font-size: 0.8rem;
 }
 
+/* Disabled AI recommendation radio labels (when manual selection is active) */
+.sg-option-disabled {
+  opacity: 0.45;
+  cursor: not-allowed !important;
+  pointer-events: auto;
+}
+.sg-option-disabled:hover {
+  border-color: #dee2e6 !important;
+  background-color: transparent !important;
+}
+[data-bs-theme="dark"] .sg-option-disabled:hover {
+  border-color: #495057 !important;
+}
+
+/* Manual Support Group Selector */
+.manual-sg-selector {
+  position: relative;
+}
+.manual-sg-label {
+  font-size: 0.8rem;
+  color: #6c757d;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+[data-bs-theme="dark"] .manual-sg-label {
+  color: #adb5bd;
+}
+.manual-sg-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  position: relative;
+}
+.manual-sg-search {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.5rem;
+}
+.manual-sg-search.manual-sg-selected {
+  background-color: #e8f0fe;
+  border-color: #007bff;
+  font-weight: 500;
+}
+[data-bs-theme="dark"] .manual-sg-search.manual-sg-selected {
+  background-color: #1a3a5c;
+  border-color: #6ea8fe;
+  color: #e0e0e0;
+}
+.manual-sg-clear {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.manual-sg-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1050;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 0.375rem 0.375rem;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+[data-bs-theme="dark"] .manual-sg-results {
+  background: #2b3035;
+  border-color: #495057;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+.manual-sg-item {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+}
+.manual-sg-item:last-child {
+  border-bottom: none;
+}
+.manual-sg-item:hover {
+  background-color: #e9ecef;
+}
+[data-bs-theme="dark"] .manual-sg-item {
+  border-bottom-color: #3a3f44;
+}
+[data-bs-theme="dark"] .manual-sg-item:hover {
+  background-color: #3a3f44;
+}
+.manual-sg-item.manual-sg-no-results {
+  color: #6c757d;
+  cursor: default;
+  font-style: italic;
+}
+[data-bs-theme="dark"] .manual-sg-item.manual-sg-no-results {
+  color: #adb5bd;
+}
+.manual-sg-match {
+  color: #007bff;
+  font-weight: 600;
+}
+[data-bs-theme="dark"] .manual-sg-match {
+  color: #6ea8fe;
+}
+
 /* Priority Selector - Three-way toggle */
 .priority-selector {
   display: flex;
@@ -783,67 +889,140 @@ body {
   border-color: var(--border-color);
 }
 
-/* ── Recommendation toggle button ────────────────────────────────────────── */
+/* ── Recommendation toggle button (AI rainbow gradient) ──────────────────── */
 
-/* OFF state: outline style — border only, muted appearance */
-.recommendation-toggle-off {
-  background-color: transparent !important;
-  border: 2px solid #0d6efd !important;
-  color: #0d6efd !important;
+/* Shared AI gradient definition */
+.recommendation-toggle-off,
+.recommendation-toggle-on {
+  --ai-gradient: linear-gradient(
+    135deg,
+    #7c3aed, #3b82f6, #06b6d4, #10b981, #f59e0b, #ef4444, #ec4899, #7c3aed
+  );
+  position: relative;
+  z-index: 0;
+  border: none !important;
+  border-radius: 0.5rem;
   transition: all 0.3s ease;
+  overflow: visible;
+}
+
+/* Animated gradient shift */
+@keyframes aiGradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/*
+ * OFF state: gradient border + visible text, transparent interior.
+ * Uses a ::before pseudo-element for the gradient border because
+ * border-image does not support border-radius.
+ * Text uses a solid purple color (the gradient's starting hue) rather than
+ * background-clip:text, which conflicts with the background-color mask.
+ */
+.recommendation-toggle-off {
+  background-color: var(--bg-color) !important;
+  background-image: none !important;
+  color: #7c3aed !important;
+  -webkit-text-fill-color: #7c3aed;
+}
+
+/* Gradient border via ::before for OFF state */
+.recommendation-toggle-off::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: calc(0.5rem + 2px);
+  background-image: var(--ai-gradient);
+  background-size: 300% 300%;
+  animation: aiGradientShift 6s ease infinite;
+  z-index: -2;
+}
+
+/* Solid interior mask for OFF state (creates the "outline" look) */
+.recommendation-toggle-off::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0.5rem;
+  background-color: var(--bg-color);
+  z-index: -1;
 }
 
 .recommendation-toggle-off:hover:not(:disabled) {
-  background-color: rgba(13, 110, 253, 0.08) !important;
+  background-color: var(--bg-color) !important;
 }
 
-/* ON state: solid fill — full bright color */
+.recommendation-toggle-off:hover:not(:disabled)::after {
+  background-color: rgba(124, 58, 237, 0.06);
+}
+
+/*
+ * ON state: full gradient fill with white text.
+ */
 .recommendation-toggle-on {
-  background-color: #0d6efd !important;
-  border: 2px solid #0d6efd !important;
+  background-image: var(--ai-gradient) !important;
+  background-size: 300% 300% !important;
+  background-color: transparent !important;
   color: #ffffff !important;
-  transition: all 0.3s ease;
+  -webkit-text-fill-color: #ffffff;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
+  animation: aiGradientShift 6s ease infinite;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* No pseudo-element border needed for ON state */
+.recommendation-toggle-on::before,
+.recommendation-toggle-on::after {
+  content: none;
 }
 
 .recommendation-toggle-on:hover:not(:disabled) {
-  background-color: #0b5ed7 !important;
-  border-color: #0b5ed7 !important;
+  filter: brightness(1.1);
 }
 
 /* Disabled state: grayed out, not clickable */
 .recommendation-toggle-disabled {
   background-color: #6c757d !important;
+  background-image: none !important;
   border: 2px solid #6c757d !important;
   color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
   opacity: 0.65;
   cursor: not-allowed;
+  animation: none;
 }
 
-/* Dark mode adjustments */
+.recommendation-toggle-disabled::before,
+.recommendation-toggle-disabled::after {
+  content: none;
+}
+
+/* ── Dark mode adjustments ── */
+
 [data-bs-theme="dark"] .recommendation-toggle-off {
-  border-color: #6ea8fe !important;
-  color: #6ea8fe !important;
+  color: #a78bfa !important;
+  -webkit-text-fill-color: #a78bfa;
 }
 
-[data-bs-theme="dark"] .recommendation-toggle-off:hover:not(:disabled) {
-  background-color: rgba(110, 168, 254, 0.12) !important;
+[data-bs-theme="dark"] .recommendation-toggle-off::after {
+  background-color: var(--bg-color);
+}
+
+[data-bs-theme="dark"] .recommendation-toggle-off:hover:not(:disabled)::after {
+  background-color: rgba(124, 58, 237, 0.12);
 }
 
 [data-bs-theme="dark"] .recommendation-toggle-on {
-  background-color: #0d6efd !important;
-  border-color: #0d6efd !important;
-  color: #ffffff !important;
-}
-
-[data-bs-theme="dark"] .recommendation-toggle-on:hover:not(:disabled) {
-  background-color: #3d8bfd !important;
-  border-color: #3d8bfd !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 [data-bs-theme="dark"] .recommendation-toggle-disabled {
   background-color: #495057 !important;
   border-color: #495057 !important;
   color: #adb5bd !important;
+  -webkit-text-fill-color: #adb5bd;
 }
 
 /* ── End recommendation toggle button ────────────────────────────────────── */
@@ -886,3 +1065,48 @@ body {
 }
 
 /* ── End presence indicators ─────────────────────────────────────────────── */
+
+/* ── Expiry timer bar (completion message countdown) ─────────────────────── */
+
+.expiry-timer-bar {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.25rem;
+}
+
+.expiry-timer-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  background-color: rgba(25, 135, 84, 0.12);
+  border-radius: 0.25rem;
+  animation: expiryTimerSweep 10s linear forwards;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Keep text above the bar */
+.expiry-timer-bar > * {
+  position: relative;
+  z-index: 1;
+}
+
+.expiry-timer-bar > i,
+.expiry-timer-bar > span {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes expiryTimerSweep {
+  0%   { width: 0%; }
+  100% { width: 100%; }
+}
+
+[data-bs-theme="dark"] .expiry-timer-bar::before {
+  background-color: rgba(25, 135, 84, 0.22);
+}
+
+/* ── End expiry timer bar ────────────────────────────────────────────────── */

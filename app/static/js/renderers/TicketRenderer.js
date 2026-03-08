@@ -183,14 +183,22 @@ class TicketRenderer {
       if (progressSpan._hideTimeout) {
         clearTimeout(progressSpan._hideTimeout);
         progressSpan._hideTimeout = null;
+        progressSpan.classList.remove('expiry-timer-bar');
         progressSpan.style.transition = '';
         progressSpan.style.opacity = '1';
       }
 
       if (isComplete) {
+        // Remove and re-add the expiry timer bar class to restart the CSS animation
+        progressSpan.classList.remove('expiry-timer-bar');
+
         progressSpan.innerHTML = `<i class="bi bi-check-circle text-success me-2"></i>${loadedCount} tickets loaded`;
         progressSpan.classList.remove('text-muted');
         progressSpan.classList.add('text-success');
+
+        // Force a reflow so the animation restarts cleanly when the class is re-added
+        void progressSpan.offsetWidth;
+        progressSpan.classList.add('expiry-timer-bar');
 
         // Fade out and hide the message after 10 seconds
         progressSpan._hideTimeout = setTimeout(() => {
@@ -199,6 +207,7 @@ class TicketRenderer {
           // Clear content after the fade animation completes
           setTimeout(() => {
             progressSpan.innerHTML = '';
+            progressSpan.classList.remove('expiry-timer-bar');
             progressSpan.style.transition = '';
             progressSpan.style.opacity = '1';
             progressSpan._hideTimeout = null;
@@ -599,6 +608,177 @@ class TicketRenderer {
   }
 
   /**
+   * Render the manual support group selector dropdown with search
+   * @param {number} ticketIndex - Index of the ticket
+   * @returns {string} HTML string for the manual selector
+   * @private
+   */
+  static _renderManualSupportGroupSelector(ticketIndex) {
+    return `
+      <div class="manual-sg-selector mt-2" id="manual-sg-${ticketIndex}">
+        <span class="manual-sg-label">Or manually select a support group:</span>
+        <div class="manual-sg-input-wrapper">
+          <input type="text" class="form-control form-control-sm manual-sg-search"
+                 placeholder="Type to search support groups..."
+                 id="manual-sg-search-${ticketIndex}"
+                 autocomplete="off">
+          <button type="button" class="btn btn-sm btn-outline-secondary manual-sg-clear d-none"
+                  id="manual-sg-clear-${ticketIndex}" title="Remove manual selection">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+        <div class="manual-sg-results d-none" id="manual-sg-results-${ticketIndex}"></div>
+        <input type="hidden" id="manual-sg-value-${ticketIndex}" name="manual-sg-batch-${ticketIndex}" value="">
+      </div>
+    `;
+  }
+
+  /**
+   * Initialize the manual support group selector interaction logic.
+   * Handles search filtering, selection, clearing, and disabling/enabling
+   * the AI recommendation radio buttons.
+   * @param {number} ticketIndex - Index of the ticket
+   * @private
+   */
+  static _initManualSgSelector(ticketIndex) {
+    const searchInput = document.getElementById(`manual-sg-search-${ticketIndex}`);
+    const resultsDiv = document.getElementById(`manual-sg-results-${ticketIndex}`);
+    const hiddenInput = document.getElementById(`manual-sg-value-${ticketIndex}`);
+    const clearBtn = document.getElementById(`manual-sg-clear-${ticketIndex}`);
+
+    if (!searchInput || !resultsDiv || !hiddenInput || !clearBtn) return;
+
+    let isSelected = false;
+
+    // Close dropdown when clicking outside
+    const closeDropdown = (e) => {
+      if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+        resultsDiv.classList.add('d-none');
+      }
+    };
+    document.addEventListener('click', closeDropdown);
+
+    // Search input handler
+    searchInput.addEventListener('input', async () => {
+      if (isSelected) return; // Don't filter while a selection is active
+
+      const query = searchInput.value.trim().toLowerCase();
+      if (query.length === 0) {
+        resultsDiv.classList.add('d-none');
+        return;
+      }
+
+      const names = await getSupportGroupNames();
+      const filtered = names.filter(n => n.toLowerCase().includes(query));
+
+      if (filtered.length === 0) {
+        resultsDiv.innerHTML = '<div class="manual-sg-item manual-sg-no-results">No matching support groups</div>';
+      } else {
+        resultsDiv.innerHTML = filtered.map(name => {
+          // Highlight matching portion
+          const idx = name.toLowerCase().indexOf(query);
+          const before = name.substring(0, idx);
+          const match = name.substring(idx, idx + query.length);
+          const after = name.substring(idx + query.length);
+          return `<div class="manual-sg-item" data-sg-name="${name}">${before}<strong class="manual-sg-match">${match}</strong>${after}</div>`;
+        }).join('');
+      }
+      resultsDiv.classList.remove('d-none');
+    });
+
+    // Show dropdown on focus if there's text
+    searchInput.addEventListener('focus', () => {
+      if (!isSelected && searchInput.value.trim().length > 0) {
+        // Re-trigger filtering
+        searchInput.dispatchEvent(new Event('input'));
+      }
+    });
+
+    // Handle selection from dropdown
+    resultsDiv.addEventListener('click', (e) => {
+      const item = e.target.closest('.manual-sg-item[data-sg-name]');
+      if (!item) return;
+
+      const selectedName = item.dataset.sgName;
+      hiddenInput.value = selectedName;
+      searchInput.value = selectedName;
+      searchInput.readOnly = true;
+      searchInput.classList.add('manual-sg-selected');
+      isSelected = true;
+      clearBtn.classList.remove('d-none');
+      resultsDiv.classList.add('d-none');
+
+      // Disable the 3 AI recommendation radio buttons for this ticket
+      TicketRenderer._setAiRadiosDisabled(ticketIndex, true);
+
+      debugLog(`[RENDERER] - Manual support group selected for ticket ${ticketIndex}: ${selectedName}`);
+    });
+
+    // Handle clear button
+    clearBtn.addEventListener('click', () => {
+      hiddenInput.value = '';
+      searchInput.value = '';
+      searchInput.readOnly = false;
+      searchInput.classList.remove('manual-sg-selected');
+      isSelected = false;
+      clearBtn.classList.add('d-none');
+      resultsDiv.classList.add('d-none');
+
+      // Re-enable the 3 AI recommendation radio buttons and re-select 1st choice
+      TicketRenderer._setAiRadiosDisabled(ticketIndex, false);
+
+      debugLog(`[RENDERER] - Manual support group cleared for ticket ${ticketIndex}`);
+    });
+  }
+
+  /**
+   * Enable or disable the AI recommendation support group radio buttons for a ticket.
+   * When disabled, adds a tooltip explaining why. When re-enabled, restores the 1st choice.
+   * @param {number} ticketIndex - Index of the ticket
+   * @param {boolean} disabled - Whether to disable (true) or enable (false)
+   * @private
+   */
+  static _setAiRadiosDisabled(ticketIndex, disabled) {
+    const sgSelectorId = `sg-selector-batch-${ticketIndex}`;
+    const container = document.getElementById(`recommendations-${ticketIndex}`);
+    if (!container) return;
+
+    const radios = container.querySelectorAll(`input[name="${sgSelectorId}"]`);
+    const labels = container.querySelectorAll(`input[name="${sgSelectorId}"] + label`);
+
+    radios.forEach((radio, i) => {
+      radio.disabled = disabled;
+      const label = labels[i];
+      if (!label) return;
+
+      if (disabled) {
+        label.classList.add('sg-option-disabled');
+        // Add tooltip
+        label.setAttribute('data-bs-toggle', 'tooltip');
+        label.setAttribute('data-bs-placement', 'top');
+        label.setAttribute('title', 'Support group was manually selected. Remove the manual selection to use AI recommendations.');
+        // Initialize Bootstrap tooltip
+        try { new bootstrap.Tooltip(label); } catch (e) { /* ignore */ }
+      } else {
+        label.classList.remove('sg-option-disabled');
+        // Remove tooltip
+        try {
+          const tip = bootstrap.Tooltip.getInstance(label);
+          if (tip) tip.dispose();
+        } catch (e) { /* ignore */ }
+        label.removeAttribute('data-bs-toggle');
+        label.removeAttribute('data-bs-placement');
+        label.removeAttribute('title');
+      }
+    });
+
+    // When re-enabling, re-select the 1st choice radio
+    if (!disabled && radios.length > 0) {
+      radios[0].checked = true;
+    }
+  }
+
+  /**
    * Render batch recommendations for a specific ticket
    * @param {Object} data - Recommendations data
    * @param {number} ticketIndex - Index of the ticket
@@ -657,6 +837,8 @@ class TicketRenderer {
         const sgSelectorId = `sg-selector-batch-${ticketIndex}`;
         const sgSelectorHtml = this._renderSupportGroupSelectorCompact(data, sgSelectorId);
         
+        const manualSgHtml = this._renderManualSupportGroupSelector(ticketIndex);
+        
         const prioritySelectorId = `priority-selector-batch-${ticketIndex}`;
         const prioritySelectorHtml = this._renderPrioritySelector(data.recommended_priority_level, prioritySelectorId);
         
@@ -674,6 +856,7 @@ class TicketRenderer {
               <div class="row">
                 <div class="col-md-6">
                   ${sgSelectorHtml}
+                  ${manualSgHtml}
                   <div class="mt-2">
                     ${prioritySelectorHtml}
                   </div>
@@ -702,6 +885,15 @@ class TicketRenderer {
         data.detailed_explanation,
         CONSTANTS.DEFAULTS.TRUNCATE_LENGTH_SHORT
       );
+    }
+
+    // Initialize the manual support group selector interaction (non-facilities only)
+    if (!data.error) {
+      const isFacilitiesTicket = data.recommended_support_group === 'facilities' || 
+                                 data.recommended_support_group?.toLowerCase() === 'facilities';
+      if (!isFacilitiesTicket) {
+        this._initManualSgSelector(ticketIndex);
+      }
     }
 
     debugLog(`[RENDERER] - Batch recommendations display completed for ticket ${ticketIndex}`);
