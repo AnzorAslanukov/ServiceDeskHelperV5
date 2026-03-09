@@ -570,6 +570,10 @@ class TicketRenderer {
           <span class="priority-legend-badge low">Low</span>
           <span class="priority-legend-text">= P3</span>
         </div>
+        <div class="priority-legend-item">
+          <span class="manual-sg-legend-swatch"></span>
+          <span class="priority-legend-text">= Manual support group selected</span>
+        </div>
         <div class="priority-legend-note">
           <i class="bi bi-info-circle me-1"></i>P1 is excluded from automatic assignment (only users can assign P1)
         </div>
@@ -711,6 +715,10 @@ class TicketRenderer {
       // Disable the 3 AI recommendation radio buttons for this ticket
       TicketRenderer._setAiRadiosDisabled(ticketIndex, true);
 
+      // Add warm color highlight to the accordion header
+      const accordionHeader = document.querySelector(`[data-ticket-index="${ticketIndex}"] > .accordion-header`);
+      if (accordionHeader) accordionHeader.classList.add('manual-sg-header');
+
       debugLog(`[RENDERER] - Manual support group selected for ticket ${ticketIndex}: ${selectedName}`);
     });
 
@@ -726,6 +734,10 @@ class TicketRenderer {
 
       // Re-enable the 3 AI recommendation radio buttons and re-select 1st choice
       TicketRenderer._setAiRadiosDisabled(ticketIndex, false);
+
+      // Remove warm color highlight from the accordion header
+      const accordionHeader = document.querySelector(`[data-ticket-index="${ticketIndex}"] > .accordion-header`);
+      if (accordionHeader) accordionHeader.classList.remove('manual-sg-header');
 
       debugLog(`[RENDERER] - Manual support group cleared for ticket ${ticketIndex}`);
     });

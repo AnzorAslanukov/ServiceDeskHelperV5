@@ -554,6 +554,79 @@ body {
   border-color: #495057 !important;
 }
 
+/* ── Manual support group header highlight (warm/gentle color scheme) ────── */
+
+.manual-sg-header {
+  background-color: #fdf6f0 !important;
+  border-left: 3px solid #e8a87c;
+  transition: background-color 0.3s ease, border-left 0.3s ease;
+}
+
+.manual-sg-header .accordion-button {
+  background-color: #fdf6f0 !important;
+  color: #5a4a3f !important;
+}
+
+.manual-sg-header .accordion-button:not(.collapsed) {
+  background-color: #f9ede3 !important;
+  color: #5a4a3f !important;
+}
+
+.manual-sg-header .accordion-button::after {
+  /* Keep the chevron visible against the warm background */
+  filter: none;
+}
+
+.manual-sg-header .ticket-title {
+  color: #5a4a3f !important;
+}
+
+[data-bs-theme="dark"] .manual-sg-header {
+  background-color: #3a2f28 !important;
+  border-left-color: #c4956a;
+}
+
+[data-bs-theme="dark"] .manual-sg-header .accordion-button {
+  background-color: #3a2f28 !important;
+  color: #e8d5c4 !important;
+}
+
+[data-bs-theme="dark"] .manual-sg-header .accordion-button:not(.collapsed) {
+  background-color: #453830 !important;
+  color: #e8d5c4 !important;
+}
+
+[data-bs-theme="dark"] .manual-sg-header .ticket-title {
+  color: #e8d5c4 !important;
+}
+
+/* ── End manual support group header highlight ───────────────────────────── */
+
+/* ── Manual SG legend swatch (in priority legend bar) ────────────────────── */
+
+.manual-sg-legend-swatch {
+  display: inline-block;
+  width: 28px;
+  height: 14px;
+  border-radius: 3px;
+  background-color: #fdf6f0;
+  border-left: 3px solid #e8a87c;
+  border-top: 1px solid #e0d5cc;
+  border-right: 1px solid #e0d5cc;
+  border-bottom: 1px solid #e0d5cc;
+  vertical-align: middle;
+}
+
+[data-bs-theme="dark"] .manual-sg-legend-swatch {
+  background-color: #3a2f28;
+  border-left-color: #c4956a;
+  border-top-color: #5a4a3f;
+  border-right-color: #5a4a3f;
+  border-bottom-color: #5a4a3f;
+}
+
+/* ── End manual SG legend swatch ─────────────────────────────────────────── */
+
 /* Manual Support Group Selector */
 .manual-sg-selector {
   position: relative;
