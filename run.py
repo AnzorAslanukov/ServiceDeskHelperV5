@@ -102,6 +102,21 @@ _recommendation_stop_event = threading.Event()  # signal to stop processing new 
 RECOMMENDATION_MAX_WORKERS = 3         # concurrent LLM recommendation threads
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Consensus-based implement button state ────────────────────────────────────
+_consensus_lock = threading.Lock()
+_consensus_active: bool = False        # whether consensus mode is currently active
+_consensus_votes: set = set()          # session_ids that have agreed to unlock
+CONSENSUS_TICKET_THRESHOLD = 5         # consensus required when > this many tickets selected
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Cross-client state synchronisation ────────────────────────────────────────
+_sync_lock = threading.Lock()
+_checkbox_state: dict = {}             # ticket_id → bool (checked/unchecked)
+_assignment_selections: dict = {}      # ticket_id → { sg_choice, manual_sg, priority }
+_next_poll_epoch_ms: int = 0           # next poll timestamp for timer sync
+_implement_in_progress: bool = False   # whether an implement operation is running
+# ─────────────────────────────────────────────────────────────────────────────
+
 # 30 visually distinct colors for presence circles.
 # Colors are assigned server-side to guarantee no two active sessions share a color.
 PRESENCE_COLORS = [
@@ -1152,6 +1167,10 @@ def api_presence_heartbeat():
             for sid, info in _active_sessions.items()
         ]
 
+    # Check if any stale sessions affected consensus state
+    if stale:
+        _check_consensus_after_presence_change()
+
     return jsonify({'sessions': sessions})
 
 
@@ -1168,6 +1187,8 @@ def api_presence_leave():
     if session_id:
         with _presence_lock:
             _active_sessions.pop(session_id, None)
+        # Check if the departing session affects consensus state
+        _check_consensus_after_presence_change()
 
     return jsonify({'status': 'ok'})
 
@@ -1210,16 +1231,20 @@ def api_check_validation_tickets():
             'new_in_queue':   new_in_queue
         }
 
-        # Clean up recommendation cache for tickets that left the queue
+        # Clean up recommendation cache and sync state for tickets that left the queue
         if left_queue:
             with _recommendation_lock:
                 for tid in left_queue:
                     _recommendation_cache.pop(tid, None)
                     _recommendation_processing.discard(tid)
+            with _sync_lock:
+                for tid in left_queue:
+                    _checkbox_state.pop(tid, None)
+                    _assignment_selections.pop(tid, None)
             if DEBUG:
                 output.add_line(
                     f"check-validation-tickets: purged {len(left_queue)} "
-                    f"recommendation(s) for tickets that left the queue"
+                    f"recommendation(s) and sync state for tickets that left the queue"
                 )
 
         # Auto-queue recommendations for new tickets if the toggle is ON
@@ -1706,6 +1731,14 @@ def api_validation_broadcast():
                     yield f"event: recommendation-complete\ndata: {json.dumps({'ticket_id': tid, 'data': rec_data})}\n\n"
                 if rec_cache:
                     yield f"event: recommendation-progress\ndata: {json.dumps({'completed': len(rec_cache), 'total': len(cached_tickets)})}\n\n"
+
+                # Replay cross-client sync state for late-joining clients
+                with _sync_lock:
+                    sync_checkboxes = dict(_checkbox_state)
+                    sync_assignments = {k: dict(v) for k, v in _assignment_selections.items()}
+                    sync_next_poll = _next_poll_epoch_ms
+                if sync_checkboxes:
+                    yield f"event: sync-state-burst\ndata: {json.dumps({'checkboxes': sync_checkboxes, 'assignments': sync_assignments, 'next_poll_at': sync_next_poll})}\n\n"
             elif current_state == 'loading':
                 # Send the loading state indicator first
                 yield f"event: state\ndata: {json.dumps({'state': 'loading'})}\n\n"
@@ -2029,6 +2062,357 @@ def api_recommendation_state():
 
 
 # ── End recommendation engine helpers ─────────────────────────────────────────
+
+
+# ── Consensus-based implement button helpers ──────────────────────────────────
+
+def _get_consensus_state():
+    """
+    Build and return the current consensus state dict.
+    Must be called with _consensus_lock already held OR after acquiring it.
+    Thread-safe: acquires _presence_lock to read active session count.
+    """
+    with _presence_lock:
+        active_count = len(_active_sessions)
+    # _consensus_lock must be held by the caller
+    return {
+        'active': _consensus_active,
+        'agreed': list(_consensus_votes),
+        'required': active_count,
+        'unlocked': _consensus_active and active_count > 0 and len(_consensus_votes) >= active_count
+    }
+
+
+def _broadcast_consensus_state():
+    """
+    Broadcast the current consensus state to all connected SSE clients.
+    Acquires _consensus_lock internally.
+    """
+    with _consensus_lock:
+        state = _get_consensus_state()
+    _broadcast_validation_event('consensus-state', state, _buffer=False)
+
+
+def _check_consensus_after_presence_change():
+    """
+    Called after a presence change (session expired, session left, new session).
+    Adjusts consensus state:
+    - Removes votes from sessions that are no longer active.
+    - If only 1 user remains, auto-deactivates consensus.
+    - If all remaining users have agreed, the button auto-unlocks.
+    Broadcasts updated state if consensus is active.
+    """
+    global _consensus_active
+
+    with _presence_lock:
+        active_sids = set(_active_sessions.keys())
+        active_count = len(active_sids)
+
+    with _consensus_lock:
+        if not _consensus_active:
+            return
+
+        # Remove votes from sessions that are no longer active
+        stale_votes = _consensus_votes - active_sids
+        if stale_votes:
+            _consensus_votes -= stale_votes
+
+        # If only 1 (or 0) users remain, consensus is no longer needed
+        if active_count <= 1:
+            _consensus_active = False
+            _consensus_votes.clear()
+
+    _broadcast_consensus_state()
+
+
+@app.route('/api/consensus/activate', methods=['POST'])
+def api_consensus_activate():
+    """
+    Activate consensus mode for the implement button.
+    Called when a client detects >CONSENSUS_TICKET_THRESHOLD tickets selected
+    with 2+ users present.
+
+    Request body: { "session_id": "<uuid>" }
+    Response:     current consensus state
+    """
+    global _consensus_active
+    output = Output()
+
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id', '').strip()
+
+    with _presence_lock:
+        active_count = len(_active_sessions)
+
+    # Only activate if 2+ users are present
+    if active_count < 2:
+        return jsonify({'active': False, 'agreed': [], 'required': active_count, 'unlocked': False})
+
+    with _consensus_lock:
+        if not _consensus_active:
+            _consensus_active = True
+            _consensus_votes.clear()
+            if DEBUG:
+                output.add_line(f'api_consensus_activate: consensus mode activated by {session_id[:8] if session_id else "unknown"}')
+
+    _broadcast_consensus_state()
+
+    with _consensus_lock:
+        state = _get_consensus_state()
+
+    return jsonify(state)
+
+
+@app.route('/api/consensus/vote', methods=['POST'])
+def api_consensus_vote():
+    """
+    Record or remove a user's agreement vote for consensus unlock.
+
+    Request body: { "session_id": "<uuid>", "agree": true/false }
+    Response:     current consensus state
+    """
+    output = Output()
+
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id', '').strip()
+    agree = data.get('agree', True)
+
+    if not session_id:
+        return jsonify({'error': 'Missing session_id'}), 400
+
+    with _consensus_lock:
+        if not _consensus_active:
+            return jsonify({'active': False, 'agreed': [], 'required': 0, 'unlocked': False})
+
+        if agree:
+            _consensus_votes.add(session_id)
+        else:
+            _consensus_votes.discard(session_id)
+
+        if DEBUG:
+            output.add_line(
+                f'api_consensus_vote: {session_id[:8]}… voted {"agree" if agree else "disagree"} '
+                f'({len(_consensus_votes)} votes)'
+            )
+
+    _broadcast_consensus_state()
+
+    with _consensus_lock:
+        state = _get_consensus_state()
+
+    return jsonify(state)
+
+
+@app.route('/api/consensus/deactivate', methods=['POST'])
+def api_consensus_deactivate():
+    """
+    Deactivate consensus mode.
+    Called when tickets are unchecked below the threshold or only 1 user remains.
+
+    Request body: { "session_id": "<uuid>" }
+    Response:     current consensus state
+    """
+    global _consensus_active
+    output = Output()
+
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id', '').strip()
+
+    with _consensus_lock:
+        if _consensus_active:
+            _consensus_active = False
+            _consensus_votes.clear()
+            if DEBUG:
+                output.add_line(f'api_consensus_deactivate: consensus mode deactivated by {session_id[:8] if session_id else "unknown"}')
+
+    _broadcast_consensus_state()
+
+    return jsonify({'active': False, 'agreed': [], 'required': 0, 'unlocked': False})
+
+
+@app.route('/api/consensus/state', methods=['GET'])
+def api_consensus_state():
+    """
+    Return the current consensus state.
+    Used by clients on page load / reconnect.
+    """
+    with _consensus_lock:
+        state = _get_consensus_state()
+    return jsonify(state)
+
+
+# ── End consensus helpers ─────────────────────────────────────────────────────
+
+
+# ── Cross-client state synchronisation endpoints ──────────────────────────────
+
+@app.route('/api/sync-checkbox', methods=['POST'])
+def api_sync_checkbox():
+    """
+    Synchronise checkbox state across all connected clients.
+
+    Request body:
+      { "ticket_id": "IR12345", "checked": true }
+      OR
+      { "select_all": true, "checked": true }
+
+    Broadcasts a 'checkbox-sync' event to all SSE clients.
+    """
+    data = request.get_json(silent=True) or {}
+
+    if 'select_all' in data:
+        checked = bool(data.get('checked', False))
+        # Update all checkbox states
+        with _sync_lock:
+            for tid in list(_checkbox_state.keys()):
+                _checkbox_state[tid] = checked
+            # Also set any tickets from validation cache that aren't in _checkbox_state yet
+            with _validation_lock:
+                for t in _validation_tickets:
+                    _checkbox_state[t['id']] = checked
+        _broadcast_validation_event('checkbox-sync', {
+            'select_all': True,
+            'checked': checked
+        }, _buffer=False)
+        return jsonify({'status': 'ok'})
+
+    ticket_id = data.get('ticket_id', '').strip()
+    if not ticket_id:
+        return jsonify({'error': 'Missing ticket_id'}), 400
+
+    checked = bool(data.get('checked', False))
+    with _sync_lock:
+        _checkbox_state[ticket_id] = checked
+
+    _broadcast_validation_event('checkbox-sync', {
+        'ticket_id': ticket_id,
+        'checked': checked
+    }, _buffer=False)
+
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/api/sync-assignment-selection', methods=['POST'])
+def api_sync_assignment_selection():
+    """
+    Synchronise support group / priority selection across all connected clients.
+
+    Request body:
+      {
+        "ticket_id": "IR12345",
+        "field": "support_group_radio" | "manual_support_group" | "priority_radio",
+        "value": "<selected value or empty string to clear>"
+      }
+
+    Broadcasts an 'assignment-selection-sync' event to all SSE clients.
+    """
+    data = request.get_json(silent=True) or {}
+    ticket_id = data.get('ticket_id', '').strip()
+    field = data.get('field', '').strip()
+    value = data.get('value', '')
+
+    if not ticket_id or not field:
+        return jsonify({'error': 'Missing ticket_id or field'}), 400
+
+    if field not in ('support_group_radio', 'manual_support_group', 'priority_radio'):
+        return jsonify({'error': f'Invalid field: {field}'}), 400
+
+    with _sync_lock:
+        if ticket_id not in _assignment_selections:
+            _assignment_selections[ticket_id] = {}
+        _assignment_selections[ticket_id][field] = value
+
+    _broadcast_validation_event('assignment-selection-sync', {
+        'ticket_id': ticket_id,
+        'field': field,
+        'value': value
+    }, _buffer=False)
+
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/api/sync-poll-timer', methods=['POST'])
+def api_sync_poll_timer():
+    """
+    Broadcast the next poll epoch timestamp so all clients show the same countdown.
+
+    Request body: { "next_poll_at": <epoch_ms> }
+    Broadcasts a 'poll-timer-sync' event to all SSE clients.
+    """
+    global _next_poll_epoch_ms
+    data = request.get_json(silent=True) or {}
+    next_poll_at = data.get('next_poll_at', 0)
+
+    with _sync_lock:
+        _next_poll_epoch_ms = int(next_poll_at)
+
+    _broadcast_validation_event('poll-timer-sync', {
+        'next_poll_at': _next_poll_epoch_ms
+    }, _buffer=False)
+
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/api/sync-implement', methods=['POST'])
+def api_sync_implement():
+    """
+    Broadcast implement-assignment lifecycle events to all connected clients.
+
+    Request body:
+      { "action": "started", "session_id": "<uuid>", "ticket_ids": [...] }
+      OR
+      { "action": "complete", "results": { ... } }
+
+    Broadcasts 'implement-started' or 'implement-complete' events.
+    """
+    global _implement_in_progress
+    data = request.get_json(silent=True) or {}
+    action = data.get('action', '').strip()
+
+    if action == 'started':
+        with _sync_lock:
+            _implement_in_progress = True
+        _broadcast_validation_event('implement-started', {
+            'session_id': data.get('session_id', ''),
+            'ticket_ids': data.get('ticket_ids', [])
+        }, _buffer=False)
+        return jsonify({'status': 'ok'})
+
+    elif action == 'complete':
+        with _sync_lock:
+            _implement_in_progress = False
+        _broadcast_validation_event('implement-complete', {
+            'results': data.get('results', {})
+        }, _buffer=False)
+        return jsonify({'status': 'ok'})
+
+    return jsonify({'error': f'Invalid action: {action}'}), 400
+
+
+@app.route('/api/sync-state', methods=['GET'])
+def api_sync_state():
+    """
+    Return the full cross-client synchronisation state.
+    Used by late-joining clients to restore checkbox, assignment, and timer state.
+
+    Response:
+    {
+        "checkboxes": { "IR12345": true, ... },
+        "assignments": { "IR12345": { "support_group_radio": "...", ... }, ... },
+        "next_poll_at": <epoch_ms>,
+        "implement_in_progress": false
+    }
+    """
+    with _sync_lock:
+        return jsonify({
+            'checkboxes': dict(_checkbox_state),
+            'assignments': {k: dict(v) for k, v in _assignment_selections.items()},
+            'next_poll_at': _next_poll_epoch_ms,
+            'implement_in_progress': _implement_in_progress
+        })
+
+
+# ── End cross-client state synchronisation endpoints ──────────────────────────
 
 
 @app.route('/api/support-group-names', methods=['GET'])

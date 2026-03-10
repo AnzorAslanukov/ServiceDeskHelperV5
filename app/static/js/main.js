@@ -50,7 +50,18 @@ const DEBUG_PRESENCE_MOCK = false;
  * Requires tests/dummy_recommendations.js to be loaded (see index.html).
  * Set back to false for normal operation.
  */
-const DEBUG_DUMMY_RECOMMENDATIONS = true;
+const DEBUG_DUMMY_RECOMMENDATIONS = false;
+
+/**
+ * DEBUG: set to true to prevent the "Implement ticket assignment" button from
+ * actually calling the Athena API to assign tickets.  When active, the button
+ * still runs all client-side logic (collecting selections, building the
+ * assignments array, rendering a results table) but the POST to
+ * /api/implement-assignments is skipped and a mock result is shown instead.
+ * This allows safe UI testing when recommendation data is inaccurate.
+ * Set back to false for normal (real assignment) operation.
+ */
+const DEBUG_HARD_STOP_ASSIGNMENT = true;
 
 // ─── Support group names cache ───────────────────────────────────────────────
 let _supportGroupNamesCache = null;
@@ -167,6 +178,27 @@ function attachEventListeners() {
   if (searchButton) {
     searchButton.addEventListener('click', handleSearchButtonClick);
   }
+
+  // Listen for ticket checkbox selection changes to update the Implement button
+  // label and enabled/disabled state in real time.
+  // Also checks whether consensus mode should be activated or deactivated.
+  document.addEventListener('ticketSelectionChanged', (e) => {
+    if (!assignmentUIManager) return;
+    const { selectedCount, totalCount } = e.detail;
+    assignmentUIManager.updateImplementButtonState(selectedCount, totalCount);
+
+    // ── Consensus threshold detection ──────────────────────────────────────
+    handleConsensusThresholdCheck(selectedCount);
+  });
+
+  // Listen for clicks on the consensus agree button (delegated)
+  document.addEventListener('click', (e) => {
+    const agreeBtn = e.target.closest('#consensus-agree-btn');
+    if (!agreeBtn || !assignmentUIManager) return;
+    // Toggle the user's vote
+    const currentlyAgreed = assignmentUIManager._myConsensusVote;
+    sendConsensusVote(!currentlyAgreed);
+  });
 
   debugLog('[MAIN] - Event listeners attached');
 }
@@ -508,53 +540,59 @@ let _recommendationCancelled = false;
  * Handle get ticket recommendations button click (toggle behavior).
  *
  * Acts as a push-button toggle:
- *   OFF → ON:  Starts recommendation processing for all loaded tickets.
- *   ON  → OFF: Stops new processing, preserves existing recommendations,
- *              resumes polling, keeps Implement button enabled if any
- *              recommendations have been generated.
+ *   OFF → ON:  Calls the server-side recommendation engine which processes
+ *              all loaded tickets and broadcasts results to ALL connected
+ *              clients via SSE.
+ *   ON  → OFF: Tells the server to stop processing new tickets. Existing
+ *              recommendations are preserved. All clients are notified via SSE.
+ *
+ * In DEBUG_DUMMY_RECOMMENDATIONS mode, recommendations are generated locally
+ * using dummy data (no server call, no cross-client sync). This is a
+ * frontend-only debug tool for rapid UI testing.
  */
 async function handleGetRecommendations() {
   debugLog('[MAIN] - Get ticket recommendations toggle clicked');
 
+  // ── Dummy recommendation mode (local-only, no cross-client sync) ───────────
+  if (DEBUG_DUMMY_RECOMMENDATIONS) {
+    await _handleGetRecommendationsDummy();
+    return;
+  }
+  // ── End dummy recommendation mode ──────────────────────────────────────────
+
   // ── Toggle OFF path ────────────────────────────────────────────────────────
   if (assignmentUIManager.isRecommendationToggleActive()) {
-    debugLog('[MAIN] - Toggling recommendations OFF');
+    debugLog('[MAIN] - Toggling recommendations OFF (server-side)');
 
-    // Signal cancellation to any in-flight processing loop
-    _recommendationCancelled = true;
+    try {
+      const response = await fetch(CONSTANTS.API.TOGGLE_RECOMMENDATIONS, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: false })
+      });
 
-    // Update toggle visual to OFF
-    assignmentUIManager.setRecommendationToggleState(false);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
-    // Hide the processing progress indicator
-    assignmentUIManager.hideRecommendationProgress();
-
-    // Resume polling (it was paused when toggle was turned ON)
-    startValidationPolling();
-
-    // If any recommendations were already generated, keep the Implement
-    // button enabled and leave the workflow in a usable state.
-    // Check if at least one recommendation container has content.
-    const hasAnyRecommendation = document.querySelector(
-      '[id^="recommendations-"] .card, [id^="recommendations-"] .support-group-selector'
-    );
-    if (hasAnyRecommendation) {
-      // Enable Implement button directly without going through setWorkflowState
-      // (which would re-activate the toggle). Keep workflow at a usable state.
-      assignmentUIManager.enableImplementButton();
-      // Manually set the workflow state string without triggering button updates
-      assignmentUIManager.workflowState = 'recommendations-complete';
-    } else {
-      // No recommendations generated yet — revert to tickets-loaded
-      assignmentUIManager.setWorkflowState('tickets-loaded');
+      const result = await response.json();
+      debugLog('[MAIN] - Toggle OFF response:', result);
+      // The server broadcasts recommendation-toggle { active: false } to all
+      // clients via SSE. The _applySyncedRecommendationToggle handler will
+      // update the UI for this client and all others.
+    } catch (error) {
+      debugLog('[MAIN] - Error toggling recommendations off:', error);
+      // Fallback: update local state directly if the server call fails
+      assignmentUIManager.setRecommendationToggleState(false);
+      assignmentUIManager.hideRecommendationProgress();
+      startValidationPolling();
     }
 
-    debugLog('[MAIN] - Recommendations toggled OFF');
     return;
   }
 
   // ── Toggle ON path ─────────────────────────────────────────────────────────
-  debugLog('[MAIN] - Toggling recommendations ON');
+  debugLog('[MAIN] - Toggling recommendations ON (server-side)');
 
   // Check if validation tickets are displayed
   const validationAccordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
@@ -563,128 +601,112 @@ async function handleGetRecommendations() {
     return;
   }
 
-  // Collect ticket IDs and indices from displayed tickets
-  const ticketItems = BatchProcessor.collectTicketItems();
+  try {
+    const response = await fetch(CONSTANTS.API.TOGGLE_RECOMMENDATIONS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: true })
+    });
 
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    debugLog('[MAIN] - Toggle ON response:', result);
+    // The server broadcasts recommendation-toggle { active: true } to all
+    // clients via SSE, then starts background LLM processing.
+    // The _applySyncedRecommendationToggle handler will update the UI.
+    // As each recommendation completes, recommendation-complete SSE events
+    // arrive and are handled by _applySyncedRecommendationComplete.
+  } catch (error) {
+    debugLog('[MAIN] - Error toggling recommendations on:', error);
+    alert('Error starting recommendations: ' + error.message);
+  }
+}
+
+/**
+ * Handle dummy recommendation mode (local-only, no cross-client sync).
+ * This is a frontend-only debug tool for rapid UI testing without the LLM.
+ * @private
+ */
+async function _handleGetRecommendationsDummy() {
+  // ── Toggle OFF path (dummy) ────────────────────────────────────────────────
+  if (assignmentUIManager.isRecommendationToggleActive()) {
+    debugLog('[MAIN] - [DUMMY] Toggling recommendations OFF');
+    _recommendationCancelled = true;
+    assignmentUIManager.setRecommendationToggleState(false);
+    assignmentUIManager.hideRecommendationProgress();
+    startValidationPolling();
+
+    const hasAnyRecommendation = document.querySelector(
+      '[id^="recommendations-"] .card, [id^="recommendations-"] .support-group-selector'
+    );
+    if (hasAnyRecommendation) {
+      assignmentUIManager.enableImplementButton();
+      assignmentUIManager.workflowState = 'recommendations-complete';
+    } else {
+      assignmentUIManager.setWorkflowState('tickets-loaded');
+    }
+    return;
+  }
+
+  // ── Toggle ON path (dummy) ─────────────────────────────────────────────────
+  debugLog('[MAIN] - [DUMMY] DEBUG_DUMMY_RECOMMENDATIONS active: using dummy data');
+
+  const validationAccordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+  if (!validationAccordion) {
+    alert('Please fetch validation tickets first by clicking "Get validation tickets".');
+    return;
+  }
+
+  const ticketItems = BatchProcessor.collectTicketItems();
   if (ticketItems.length === 0) {
     alert('No tickets found to process.');
     return;
   }
 
-  debugLog('[MAIN] - Found', ticketItems.length, 'tickets to process');
-
-  // Clear cancellation flag
   _recommendationCancelled = false;
-
-  // Set workflow state to recommendations-loading (sets toggle to ON visually)
   assignmentUIManager.setWorkflowState('recommendations-loading');
-
-  // Pause polling during recommendation processing to avoid interference
   stopValidationPolling();
   TicketRenderer.showPollingPausedMessage();
-  
-  // Track if checkboxes have been shown (show after first recommendation)
-  let checkboxesShown = false;
 
-  // Show initial progress
+  let checkboxesShown = false;
   assignmentUIManager.showRecommendationProgress(1, ticketItems.length, ticketItems[0].id);
 
-  // ── Dummy recommendation mode ──────────────────────────────────────────────
-  if (DEBUG_DUMMY_RECOMMENDATIONS) {
-    debugLog('[MAIN] - DEBUG_DUMMY_RECOMMENDATIONS active: using dummy data');
+  const DUMMY_DELAY_MS = 150;
 
-    const DUMMY_DELAY_MS = 150;
-
-    for (let i = 0; i < ticketItems.length; i++) {
-      // Check cancellation before processing each ticket
-      if (_recommendationCancelled) {
-        debugLog('[MAIN] - [DUMMY] Recommendation processing cancelled at ticket', i + 1);
-        break;
-      }
-
-      const item = ticketItems[i];
-
-      assignmentUIManager.showRecommendationProgress(i + 1, ticketItems.length, item.id);
-
-      const dummyData = getDummyRecommendation(item.id, item.index);
-
-      TicketRenderer.renderRecommendations(dummyData, true, item.index);
-      TicketRenderer.storeRecommendationData(item.index, dummyData);
-
-      if (!checkboxesShown) {
-        TicketRenderer.showTicketCheckboxes();
-        checkboxesShown = true;
-      }
-
-      assignmentUIManager.updateRecommendationProgress(i + 1, ticketItems.length);
-
-      debugLog('[MAIN] - [DUMMY] Rendered recommendation for ticket', item.id);
-
-      if (i < ticketItems.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, DUMMY_DELAY_MS));
-      }
+  for (let i = 0; i < ticketItems.length; i++) {
+    if (_recommendationCancelled) {
+      debugLog('[MAIN] - [DUMMY] Recommendation processing cancelled at ticket', i + 1);
+      break;
     }
 
-    // Only show completion and resume polling if NOT cancelled
-    if (!_recommendationCancelled) {
-      assignmentUIManager.showRecommendationComplete(ticketItems.length);
-      startValidationPolling();
-      debugLog('[MAIN] - [DUMMY] All dummy recommendations complete');
+    const item = ticketItems[i];
+    assignmentUIManager.showRecommendationProgress(i + 1, ticketItems.length, item.id);
+
+    const dummyData = getDummyRecommendation(item.id, item.index);
+    TicketRenderer.renderRecommendations(dummyData, true, item.index);
+    TicketRenderer.storeRecommendationData(item.index, dummyData);
+
+    if (!checkboxesShown) {
+      TicketRenderer.showTicketCheckboxes();
+      checkboxesShown = true;
     }
-    return;
+
+    assignmentUIManager.updateRecommendationProgress(i + 1, ticketItems.length);
+    debugLog('[MAIN] - [DUMMY] Rendered recommendation for ticket', item.id);
+
+    if (i < ticketItems.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, DUMMY_DELAY_MS));
+    }
   }
-  // ── End dummy recommendation mode ──────────────────────────────────────────
 
-  // Process tickets in batches (real LLM pipeline)
-  let completedCount = 0;
-  
-  await batchProcessor.processTickets(ticketItems, {
-    onTicketStart: (item, current, total) => {
-      if (_recommendationCancelled) return;
-      assignmentUIManager.showRecommendationProgress(current, total, item.id);
-    },
-    onProgress: (completed, total) => {
-      debugLog('[MAIN] - Progress:', completed, 'of', total);
-    },
-    onTicketComplete: (item, data) => {
-      completedCount++;
-      if (_recommendationCancelled) return;
-      
-      TicketRenderer.renderRecommendations(data, true, item.index);
-      TicketRenderer.storeRecommendationData(item.index, data);
-      
-      if (!checkboxesShown) {
-        TicketRenderer.showTicketCheckboxes();
-        checkboxesShown = true;
-      }
-      
-      assignmentUIManager.updateRecommendationProgress(completedCount, ticketItems.length);
-      
-      debugLog('[MAIN] - Rendered and stored recommendation for ticket', item.id);
-    },
-    onError: (item, error) => {
-      completedCount++;
-      if (_recommendationCancelled) return;
-      
-      const errorData = { error: error.message || 'Failed to get recommendations' };
-      TicketRenderer.renderRecommendations(errorData, true, item.index);
-      
-      assignmentUIManager.updateRecommendationProgress(completedCount, ticketItems.length);
-      
-      if (!checkboxesShown) {
-        TicketRenderer.showTicketCheckboxes();
-        checkboxesShown = true;
-      }
-    },
-    onComplete: () => {
-      // Only show completion and resume polling if NOT cancelled
-      if (!_recommendationCancelled) {
-        assignmentUIManager.showRecommendationComplete(ticketItems.length);
-        startValidationPolling();
-        debugLog('[MAIN] - All recommendations complete');
-      }
-    }
-  });
+  if (!_recommendationCancelled) {
+    assignmentUIManager.showRecommendationComplete(ticketItems.length);
+    startValidationPolling();
+    debugLog('[MAIN] - [DUMMY] All dummy recommendations complete');
+  }
 }
 
 /**
@@ -800,6 +822,31 @@ async function handleImplementAssignment() {
     implementBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Assigning...';
   }
 
+  // ── Hard stop guard ──────────────────────────────────────────────────────
+  // When DEBUG_HARD_STOP_ASSIGNMENT is true, skip the actual API call and
+  // render a mock result instead.  All client-side logic (selection, building
+  // the assignments array) still runs so the UI can be tested end-to-end.
+  if (DEBUG_HARD_STOP_ASSIGNMENT) {
+    debugLog('[MAIN] - DEBUG_HARD_STOP_ASSIGNMENT is ON — skipping actual assignment API call');
+    debugLog('[MAIN] - Would have assigned:', assignments);
+
+    TicketRenderer.renderAssignmentResults({
+      results: assignments.map(a => ({
+        ticket_id: a.ticket_id,
+        success: true,
+        support_group: a.support_group || 'N/A',
+        message: '[DEBUG] Hard stop active — no actual assignment made'
+      }))
+    });
+
+    if (implementBtn) {
+      implementBtn.disabled = false;
+      assignmentUIManager.refreshImplementButtonLabel();
+    }
+    return;
+  }
+  // ── End hard stop guard ──────────────────────────────────────────────────
+
   try {
     const response = await fetch('/api/implement-assignments', {
       method: 'POST',
@@ -823,7 +870,7 @@ async function handleImplementAssignment() {
   } finally {
     if (implementBtn) {
       implementBtn.disabled = false;
-      implementBtn.innerHTML = 'Implement ticket assignment';
+      assignmentUIManager.refreshImplementButtonLabel();
     }
   }
 }
@@ -1137,10 +1184,139 @@ function handlePresenceUpdate(sessions) {
     debugLog('[MAIN] - DEBUG_PRESENCE_MOCK active: injecting', displaySessions.length, 'mock sessions');
   }
 
+  // Update the presence count in the assignment UI manager for consensus checks
+  assignmentUIManager.setPresenceCount(displaySessions.length);
+
   assignmentUIManager.renderPresenceIndicators(displaySessions, mySessionId);
 }
 
 // ─── End presence heartbeat ───────────────────────────────────────────────────
+
+// ─── Consensus-based implement button ─────────────────────────────────────────
+
+/**
+ * Check whether the consensus threshold has been crossed and activate or
+ * deactivate consensus mode accordingly.
+ *
+ * Called from the ticketSelectionChanged event listener whenever the user
+ * checks or unchecks a ticket checkbox.
+ *
+ * @param {number} selectedCount - Number of currently checked ticket checkboxes
+ */
+function handleConsensusThresholdCheck(selectedCount) {
+  if (!assignmentUIManager || !mySessionId) return;
+
+  const shouldRequire = assignmentUIManager.shouldRequireConsensus(selectedCount);
+
+  if (shouldRequire && !assignmentUIManager.isConsensusActive()) {
+    // Threshold crossed upward — activate consensus on the server
+    activateConsensus();
+  } else if (!shouldRequire && assignmentUIManager.isConsensusActive()) {
+    // Threshold crossed downward — deactivate consensus
+    deactivateConsensus();
+  }
+}
+
+/**
+ * POST to /api/consensus/activate to enter consensus mode.
+ */
+async function activateConsensus() {
+  if (!mySessionId) return;
+  try {
+    const response = await fetch(CONSTANTS.API.CONSENSUS_ACTIVATE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: mySessionId })
+    });
+    if (response.ok) {
+      const state = await response.json();
+      applyConsensusState(state);
+    }
+  } catch (error) {
+    debugLog('[MAIN] - Error activating consensus:', error);
+  }
+}
+
+/**
+ * POST to /api/consensus/deactivate to leave consensus mode.
+ */
+async function deactivateConsensus() {
+  if (!mySessionId) return;
+  try {
+    const response = await fetch(CONSTANTS.API.CONSENSUS_DEACTIVATE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: mySessionId })
+    });
+    if (response.ok) {
+      const state = await response.json();
+      applyConsensusState(state);
+    }
+  } catch (error) {
+    debugLog('[MAIN] - Error deactivating consensus:', error);
+  }
+}
+
+/**
+ * POST to /api/consensus/vote to record or remove the current user's vote.
+ * @param {boolean} agree - true to agree, false to retract
+ */
+async function sendConsensusVote(agree) {
+  if (!mySessionId) return;
+  try {
+    const response = await fetch(CONSTANTS.API.CONSENSUS_VOTE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: mySessionId, agree })
+    });
+    if (response.ok) {
+      const state = await response.json();
+      applyConsensusState(state);
+    }
+  } catch (error) {
+    debugLog('[MAIN] - Error sending consensus vote:', error);
+  }
+}
+
+/**
+ * Apply a consensus state object received from the server (either from an
+ * API response or from an SSE broadcast event).
+ *
+ * @param {Object} state - { active, agreed, required, unlocked }
+ */
+function applyConsensusState(state) {
+  if (!assignmentUIManager) return;
+
+  const agreed = (state.agreed || []).length;
+  const required = state.required || 0;
+  const agreedList = state.agreed || [];
+
+  if (state.active) {
+    if (!assignmentUIManager.isConsensusActive()) {
+      // Entering consensus mode
+      assignmentUIManager.enterConsensusMode(agreed, required, agreedList, mySessionId);
+    } else {
+      // Already in consensus mode — update progress
+      assignmentUIManager.updateConsensusProgress(agreed, required, agreedList, mySessionId);
+    }
+
+    // Check if consensus has been achieved
+    if (state.unlocked && !assignmentUIManager.isConsensusUnlocked()) {
+      assignmentUIManager.unlockFromConsensus();
+    }
+  } else {
+    // Consensus is not active — exit if we were in it
+    if (assignmentUIManager.isConsensusActive()) {
+      assignmentUIManager.exitConsensusMode();
+      // Restore the implement button to its normal state
+      assignmentUIManager.refreshImplementButtonLabel();
+    }
+  }
+
+  debugLog('[MAIN] - Consensus state applied:', state);
+}
+
+// ─── End consensus-based implement button ─────────────────────────────────────
 
 // ─── Validation queue real-time polling ──────────────────────────────────────
 
@@ -1171,6 +1347,11 @@ function startValidationPolling() {
 
   // Start the countdown from the aligned offset so all clients show the same number
   startCountdownTimer(secondsUntilNextTick);
+
+  // Broadcast the authoritative next-poll timestamp to all connected clients
+  // so their countdown displays are synchronised regardless of clock skew.
+  const nextPollAt = Date.now() + msUntilNextTick;
+  syncPollTimer(nextPollAt);
 
   // Fire the first poll at the aligned tick, then switch to a regular interval
   validationAlignmentTimeout = setTimeout(() => {
@@ -1285,7 +1466,9 @@ async function handleValidationPoll() {
     // (startValidationPolling re-aligns after each poll fires via setInterval).
     TicketRenderer.updateLastCheckedTime(new Date());
     // Re-align the countdown for the next interval so all clients stay in sync
+    const nextPollAt = Date.now() + CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL;
     startCountdownTimer(Math.round(CONSTANTS.DEFAULTS.VALIDATION_POLL_INTERVAL / 1000));
+    syncPollTimer(nextPollAt);
 
   } catch (error) {
     debugLog('[MAIN] - Poll error:', error);
@@ -1536,6 +1719,170 @@ function startValidationBroadcastListener() {
     }
   });
 
+  // ── consensus-state ────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('consensus-state', (event) => {
+    try {
+      const state = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast consensus-state:', state);
+      applyConsensusState(state);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing consensus-state event:', e);
+    }
+  });
+
+  // ── checkbox-sync ──────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('checkbox-sync', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast checkbox-sync:', data);
+      _applySyncedCheckboxState(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing checkbox-sync event:', e);
+    }
+  });
+
+  // ── assignment-selection-sync ──────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('assignment-selection-sync', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast assignment-selection-sync:', data);
+      _applySyncedAssignmentSelection(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing assignment-selection-sync event:', e);
+    }
+  });
+
+  // ── poll-timer-sync ────────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('poll-timer-sync', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast poll-timer-sync:', data);
+      _applySyncedPollTimer(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing poll-timer-sync event:', e);
+    }
+  });
+
+  // ── implement-started ──────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('implement-started', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast implement-started:', data);
+      _applySyncedImplementStarted(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing implement-started event:', e);
+    }
+  });
+
+  // ── implement-complete ─────────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('implement-complete', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast implement-complete:', data);
+      _applySyncedImplementComplete(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing implement-complete event:', e);
+    }
+  });
+
+  // ── recommendation-toggle ──────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('recommendation-toggle', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast recommendation-toggle:', data);
+      _applySyncedRecommendationToggle(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing recommendation-toggle event:', e);
+    }
+  });
+
+  // ── recommendation-start ───────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('recommendation-start', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast recommendation-start:', data);
+      // Show per-ticket progress indicator (e.g. "Processing ticket 3 of 20 (IR10256351)...")
+      if (assignmentUIManager && data.ticket_id) {
+        // Use the current completed count + 1 as the "current" position
+        // The total is provided by recommendation-progress events
+        // NOTE: Use the child combinator (>) to count only top-level accordion items.
+        // Each ticket creates 3 elements with [data-ticket-id] (accordion-item, checkbox,
+        // recommendations container), so a bare [data-ticket-id] selector would return 3×
+        // the real ticket count.
+        const ticketItems = document.querySelectorAll(`#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} > .accordion-item[data-ticket-id]`);
+        const total = ticketItems.length;
+        // Count how many recommendations have already been rendered by checking
+        // which recommendation containers have been made visible (display: block).
+        // _renderBatchRecommendations() sets container.style.display = 'block' after
+        // rendering.  The previous selector counted .card AND .support-group-selector
+        // inside each container, yielding 2× the real count for normal tickets.
+        const completedSoFar = document.querySelectorAll('.recommendations-container[style*="display: block"]').length;
+        assignmentUIManager.showRecommendationProgress(completedSoFar + 1, total, data.ticket_id);
+      }
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing recommendation-start event:', e);
+    }
+  });
+
+  // ── recommendation-complete ────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('recommendation-complete', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast recommendation-complete:', data);
+      _applySyncedRecommendationComplete(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing recommendation-complete event:', e);
+    }
+  });
+
+  // ── recommendation-error ───────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('recommendation-error', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast recommendation-error:', data);
+      // Render error card for the specific ticket
+      const ticketItem = document.querySelector(`[data-ticket-id="${data.ticket_id}"]`);
+      if (ticketItem) {
+        const index = ticketItem.dataset.ticketIndex;
+        TicketRenderer.renderRecommendations({ error: data.error }, true, parseInt(index));
+      }
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing recommendation-error event:', e);
+    }
+  });
+
+  // ── recommendation-progress ────────────────────────────────────────────────
+  validationBroadcastSource.addEventListener('recommendation-progress', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast recommendation-progress:', data);
+      if (assignmentUIManager) {
+        assignmentUIManager.updateRecommendationProgress(data.completed, data.total);
+
+        // When all recommendations are complete, show the completion message
+        // and resume polling
+        if (data.completed > 0 && data.completed >= data.total) {
+          assignmentUIManager.showRecommendationComplete(data.total);
+          startValidationPolling();
+          debugLog('[MAIN] - All server-side recommendations complete');
+        }
+      }
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing recommendation-progress event:', e);
+    }
+  });
+
+  // ── sync-state-burst (initial state for late-joining clients) ──────────────
+  validationBroadcastSource.addEventListener('sync-state-burst', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast sync-state-burst:', data);
+      _applySyncStateBurst(data);
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing sync-state-burst event:', e);
+    }
+  });
+
   // ── connection error (EventSource.onerror) ─────────────────────────────────
   validationBroadcastSource.onerror = (err) => {
     // EventSource will auto-reconnect; only log, don't show UI error
@@ -1558,5 +1905,332 @@ function stopValidationBroadcastListener() {
 }
 
 // ─── End validation broadcast listener ───────────────────────────────────────
+
+// ─── Cross-client state synchronisation handlers ─────────────────────────────
+
+/**
+ * Guard flag: set to true while applying a synced checkbox state from the
+ * server to prevent the local change listener from re-posting to the server
+ * (infinite loop prevention).
+ */
+let _applyingSyncedCheckbox = false;
+
+/**
+ * Guard flag: set to true while applying a synced assignment selection from
+ * the server to prevent the local change listener from re-posting.
+ */
+let _applyingSyncedAssignment = false;
+
+/**
+ * Apply a checkbox-sync event received via SSE.
+ * Updates the DOM checkboxes without re-triggering a sync POST.
+ * @param {Object} data - { ticket_id, checked } or { select_all, checked }
+ */
+function _applySyncedCheckboxState(data) {
+  _applyingSyncedCheckbox = true;
+  try {
+    if (data.select_all !== undefined) {
+      // Select All / Deselect All
+      const selectAllCb = document.getElementById(CONSTANTS.SELECTORS.SELECT_ALL_TICKETS_CHECKBOX);
+      if (selectAllCb) {
+        selectAllCb.checked = data.checked;
+        selectAllCb.indeterminate = false;
+      }
+      // Update all individual ticket checkboxes
+      document.querySelectorAll('.ticket-checkbox:not([disabled])').forEach(cb => {
+        cb.checked = data.checked;
+      });
+    } else if (data.ticket_id) {
+      // Individual ticket checkbox
+      const ticketItem = document.querySelector(`[data-ticket-id="${data.ticket_id}"]`);
+      if (ticketItem) {
+        const cb = ticketItem.querySelector('.ticket-checkbox');
+        if (cb) cb.checked = data.checked;
+      }
+    }
+    // Update the Select All checkbox state and fire ticketSelectionChanged
+    if (typeof TicketRenderer !== 'undefined' && TicketRenderer._updateSelectAllCheckboxState) {
+      TicketRenderer._updateSelectAllCheckboxState();
+    }
+    if (typeof TicketRenderer !== 'undefined' && TicketRenderer._updateSelectedCount) {
+      TicketRenderer._updateSelectedCount();
+    }
+  } finally {
+    _applyingSyncedCheckbox = false;
+  }
+}
+
+/**
+ * Apply an assignment-selection-sync event received via SSE.
+ * Updates the DOM radio buttons / manual selector without re-triggering a sync POST.
+ * @param {Object} data - { ticket_id, field, value }
+ */
+function _applySyncedAssignmentSelection(data) {
+  _applyingSyncedAssignment = true;
+  try {
+    const { ticket_id, field, value } = data;
+    const ticketItem = document.querySelector(`[data-ticket-id="${ticket_id}"]`);
+    if (!ticketItem) return;
+    const index = ticketItem.dataset.ticketIndex;
+    const container = document.getElementById(`recommendations-${index}`);
+    if (!container) return;
+
+    if (field === 'support_group_radio') {
+      // Select the matching radio button
+      const radios = container.querySelectorAll(`input[name="sg-selector-batch-${index}"]`);
+      radios.forEach(r => { r.checked = (r.value === value); });
+      // Clear manual selection if a radio is being selected
+      const manualInput = container.querySelector(`input[name="manual-sg-batch-${index}"]`);
+      if (manualInput && manualInput.value) {
+        manualInput.value = '';
+        const searchInput = container.querySelector(`.manual-sg-search`);
+        if (searchInput) {
+          searchInput.value = '';
+          searchInput.readOnly = false;
+          searchInput.classList.remove('manual-sg-selected');
+        }
+        const clearBtn = container.querySelector(`.manual-sg-clear`);
+        if (clearBtn) clearBtn.style.display = 'none';
+        // Re-enable AI radios
+        if (typeof TicketRenderer !== 'undefined' && TicketRenderer._setAiRadiosDisabled) {
+          TicketRenderer._setAiRadiosDisabled(parseInt(index), false);
+        }
+        // Remove amber header
+        const header = ticketItem.querySelector('.accordion-header');
+        if (header) header.classList.remove('manual-sg-header');
+      }
+    } else if (field === 'manual_support_group') {
+      const manualInput = container.querySelector(`input[name="manual-sg-batch-${index}"]`);
+      const searchInput = container.querySelector(`.manual-sg-search`);
+      if (value) {
+        // Apply manual selection
+        if (manualInput) manualInput.value = value;
+        if (searchInput) {
+          searchInput.value = value;
+          searchInput.readOnly = true;
+          searchInput.classList.add('manual-sg-selected');
+        }
+        const clearBtn = container.querySelector(`.manual-sg-clear`);
+        if (clearBtn) clearBtn.style.display = '';
+        // Disable AI radios
+        if (typeof TicketRenderer !== 'undefined' && TicketRenderer._setAiRadiosDisabled) {
+          TicketRenderer._setAiRadiosDisabled(parseInt(index), true);
+        }
+        // Add amber header
+        const header = ticketItem.querySelector('.accordion-header');
+        if (header) header.classList.add('manual-sg-header');
+      } else {
+        // Clear manual selection
+        if (manualInput) manualInput.value = '';
+        if (searchInput) {
+          searchInput.value = '';
+          searchInput.readOnly = false;
+          searchInput.classList.remove('manual-sg-selected');
+        }
+        const clearBtn = container.querySelector(`.manual-sg-clear`);
+        if (clearBtn) clearBtn.style.display = 'none';
+        // Re-enable AI radios and select 1st choice
+        if (typeof TicketRenderer !== 'undefined' && TicketRenderer._setAiRadiosDisabled) {
+          TicketRenderer._setAiRadiosDisabled(parseInt(index), false);
+        }
+        const firstRadio = container.querySelector(`input[name="sg-selector-batch-${index}"]`);
+        if (firstRadio) firstRadio.checked = true;
+        // Remove amber header
+        const header = ticketItem.querySelector('.accordion-header');
+        if (header) header.classList.remove('manual-sg-header');
+      }
+    } else if (field === 'priority_radio') {
+      const radios = container.querySelectorAll(`input[name="priority-selector-batch-${index}"]`);
+      radios.forEach(r => { r.checked = (r.value === value); });
+    }
+  } finally {
+    _applyingSyncedAssignment = false;
+  }
+}
+
+/**
+ * Apply a poll-timer-sync event received via SSE.
+ * Resets the local countdown timer to match the server's next poll timestamp.
+ * @param {Object} data - { next_poll_at: <epoch_ms> }
+ */
+function _applySyncedPollTimer(data) {
+  if (!data.next_poll_at) return;
+  const secondsRemaining = Math.max(0, Math.round((data.next_poll_at - Date.now()) / 1000));
+  startCountdownTimer(secondsRemaining);
+}
+
+/**
+ * Apply an implement-started event received via SSE.
+ * Shows a spinner on the implement button for all clients.
+ * @param {Object} data - { session_id, ticket_ids }
+ */
+function _applySyncedImplementStarted(data) {
+  const implementBtn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+  if (implementBtn) {
+    implementBtn.disabled = true;
+    implementBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Assigning...';
+  }
+}
+
+/**
+ * Apply an implement-complete event received via SSE.
+ * Shows the results table for all clients.
+ * @param {Object} data - { results: { ... } }
+ */
+function _applySyncedImplementComplete(data) {
+  if (data.results) {
+    TicketRenderer.renderAssignmentResults(data.results);
+  }
+  const implementBtn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+  if (implementBtn) {
+    implementBtn.disabled = false;
+    if (assignmentUIManager) assignmentUIManager.refreshImplementButtonLabel();
+  }
+}
+
+/**
+ * Apply a recommendation-toggle event received via SSE.
+ * Updates the toggle button visual for all clients.
+ * @param {Object} data - { active: bool }
+ */
+function _applySyncedRecommendationToggle(data) {
+  if (!assignmentUIManager) return;
+  if (data.active) {
+    assignmentUIManager.setRecommendationToggleState(true);
+    assignmentUIManager.setWorkflowState('recommendations-loading');
+    stopValidationPolling();
+    TicketRenderer.showPollingPausedMessage();
+  } else {
+    assignmentUIManager.setRecommendationToggleState(false);
+    assignmentUIManager.hideRecommendationProgress();
+    // Check if any recommendations exist
+    const hasAnyRecommendation = document.querySelector(
+      '[id^="recommendations-"] .card, [id^="recommendations-"] .support-group-selector'
+    );
+    if (hasAnyRecommendation) {
+      assignmentUIManager.enableImplementButton();
+      assignmentUIManager.workflowState = 'recommendations-complete';
+    } else {
+      assignmentUIManager.setWorkflowState('tickets-loaded');
+    }
+    startValidationPolling();
+  }
+}
+
+/**
+ * Apply a recommendation-complete event received via SSE.
+ * Renders the recommendation for the specific ticket.
+ * @param {Object} data - { ticket_id, data: { ...recommendation } }
+ */
+function _applySyncedRecommendationComplete(data) {
+  const ticketItem = document.querySelector(`[data-ticket-id="${data.ticket_id}"]`);
+  if (!ticketItem) return;
+  const index = parseInt(ticketItem.dataset.ticketIndex);
+
+  // Render the recommendation
+  TicketRenderer.renderRecommendations(data.data, true, index);
+  TicketRenderer.storeRecommendationData(index, data.data);
+
+  // Show checkboxes after first recommendation
+  TicketRenderer.showTicketCheckboxes();
+}
+
+/**
+ * Apply the full sync-state-burst received on SSE connect for late-joining clients.
+ * Restores checkbox states, assignment selections, and poll timer.
+ * @param {Object} data - { checkboxes, assignments, next_poll_at }
+ */
+function _applySyncStateBurst(data) {
+  // Apply checkbox states
+  if (data.checkboxes) {
+    _applyingSyncedCheckbox = true;
+    try {
+      for (const [ticketId, checked] of Object.entries(data.checkboxes)) {
+        const ticketItem = document.querySelector(`[data-ticket-id="${ticketId}"]`);
+        if (ticketItem) {
+          const cb = ticketItem.querySelector('.ticket-checkbox');
+          if (cb) cb.checked = checked;
+        }
+      }
+      if (typeof TicketRenderer !== 'undefined' && TicketRenderer._updateSelectAllCheckboxState) {
+        TicketRenderer._updateSelectAllCheckboxState();
+      }
+      if (typeof TicketRenderer !== 'undefined' && TicketRenderer._updateSelectedCount) {
+        TicketRenderer._updateSelectedCount();
+      }
+    } finally {
+      _applyingSyncedCheckbox = false;
+    }
+  }
+
+  // Apply assignment selections
+  if (data.assignments) {
+    _applyingSyncedAssignment = true;
+    try {
+      for (const [ticketId, selections] of Object.entries(data.assignments)) {
+        for (const [field, value] of Object.entries(selections)) {
+          _applySyncedAssignmentSelection({ ticket_id: ticketId, field, value });
+        }
+      }
+    } finally {
+      _applyingSyncedAssignment = false;
+    }
+  }
+
+  // Apply poll timer
+  if (data.next_poll_at) {
+    _applySyncedPollTimer(data);
+  }
+}
+
+/**
+ * POST a checkbox state change to the server for cross-client synchronisation.
+ * Called from TicketRenderer when a checkbox is toggled by the local user.
+ * @param {string} ticketId - The ticket ID, or null for select-all
+ * @param {boolean} checked - Whether the checkbox is checked
+ * @param {boolean} isSelectAll - Whether this is the Select All checkbox
+ */
+function syncCheckboxState(ticketId, checked, isSelectAll = false) {
+  if (_applyingSyncedCheckbox) return; // Don't re-sync server-applied changes
+  const body = isSelectAll
+    ? { select_all: true, checked }
+    : { ticket_id: ticketId, checked };
+  fetch(CONSTANTS.API.SYNC_CHECKBOX, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).catch(err => debugLog('[MAIN] - Error syncing checkbox:', err));
+}
+
+/**
+ * POST an assignment selection change to the server for cross-client synchronisation.
+ * Called from TicketRenderer when a radio button or manual selector changes.
+ * @param {string} ticketId - The ticket ID
+ * @param {string} field - 'support_group_radio' | 'manual_support_group' | 'priority_radio'
+ * @param {string} value - The selected value
+ */
+function syncAssignmentSelection(ticketId, field, value) {
+  if (_applyingSyncedAssignment) return; // Don't re-sync server-applied changes
+  fetch(CONSTANTS.API.SYNC_ASSIGNMENT_SELECTION, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket_id: ticketId, field, value })
+  }).catch(err => debugLog('[MAIN] - Error syncing assignment selection:', err));
+}
+
+/**
+ * POST the next poll timestamp to the server for cross-client timer synchronisation.
+ * Called after each poll cycle completes.
+ * @param {number} nextPollAtMs - Unix epoch milliseconds of the next poll
+ */
+function syncPollTimer(nextPollAtMs) {
+  fetch(CONSTANTS.API.SYNC_POLL_TIMER, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ next_poll_at: nextPollAtMs })
+  }).catch(err => debugLog('[MAIN] - Error syncing poll timer:', err));
+}
+
+// ─── End cross-client state synchronisation handlers ─────────────────────────
 
 console.log('Main script loaded and initialized.');

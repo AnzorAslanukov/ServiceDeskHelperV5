@@ -76,6 +76,6 @@
     <!-- Test/Debug Data (dummy recommendations for UI testing) -->
     <script src="/tests/dummy_recommendations.js"></script>
     <!-- Main Entry Point -->
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v={{ range(100000, 999999) | random }}"></script>
 </body>
 </html>

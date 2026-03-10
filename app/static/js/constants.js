@@ -88,7 +88,16 @@ const CONSTANTS = {
     PRESENCE_LEAVE: '/api/presence/leave',
     TOGGLE_RECOMMENDATIONS: '/api/toggle-recommendations',
     RECOMMENDATION_STATE: '/api/recommendation-state',
-    SUPPORT_GROUP_NAMES: '/api/support-group-names'
+    SUPPORT_GROUP_NAMES: '/api/support-group-names',
+    CONSENSUS_ACTIVATE: '/api/consensus/activate',
+    CONSENSUS_VOTE: '/api/consensus/vote',
+    CONSENSUS_DEACTIVATE: '/api/consensus/deactivate',
+    CONSENSUS_STATE: '/api/consensus/state',
+    SYNC_CHECKBOX: '/api/sync-checkbox',
+    SYNC_ASSIGNMENT_SELECTION: '/api/sync-assignment-selection',
+    SYNC_POLL_TIMER: '/api/sync-poll-timer',
+    SYNC_IMPLEMENT: '/api/sync-implement',
+    SYNC_STATE: '/api/sync-state'
   },
 
   // Default configuration values
@@ -100,7 +109,8 @@ const CONSTANTS = {
     MAX_RESULTS: 5,
     COPY_SUCCESS_DURATION: 3000,
     VALIDATION_POLL_INTERVAL: 90000,
-    PRESENCE_HEARTBEAT_INTERVAL: 5000
+    PRESENCE_HEARTBEAT_INTERVAL: 5000,
+    CONSENSUS_TICKET_THRESHOLD: 5
   },
 
   // Icon base names for ToggleButton

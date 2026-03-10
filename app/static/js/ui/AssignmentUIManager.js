@@ -19,6 +19,17 @@ class AssignmentUIManager {
 
     // Recommendation toggle state
     this.recommendationToggleActive = false;
+
+    // Whether the workflow has reached a state where the Implement button is allowed
+    this._implementButtonAllowed = false;
+
+    // ── Consensus state ──────────────────────────────────────────────────────
+    this._consensusActive = false;       // whether consensus mode is currently active
+    this._consensusAgreed = 0;           // how many users have agreed
+    this._consensusRequired = 0;         // total users required
+    this._consensusUnlocked = false;     // whether consensus has been achieved
+    this._presenceCount = 0;             // current number of active users
+    this._myConsensusVote = false;       // whether the current user has agreed
   }
 
   /**
@@ -260,27 +271,88 @@ class AssignmentUIManager {
   }
 
   /**
-   * Enable the implement assignment button
+   * Enable the implement assignment button.
+   * Instead of unconditionally enabling, this re-evaluates the current
+   * checkbox selection state and delegates to updateImplementButtonState()
+   * so the correct label and enabled/disabled state are applied.
    */
   enableImplementButton() {
-    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
-    if (btn) {
-      btn.disabled = false;
-      btn.classList.remove('btn-secondary');
-      btn.classList.add('btn-success');
-    }
+    // Mark the button as "allowed" by the workflow — the actual enabled/disabled
+    // state and label are determined by the checkbox selection counts.
+    this._implementButtonAllowed = true;
+    this.refreshImplementButtonLabel();
   }
 
   /**
-   * Disable the implement assignment button
+   * Disable the implement assignment button unconditionally.
+   * Used by workflow states that should never allow assignment (e.g. idle,
+   * tickets-loading).
    */
   disableImplementButton() {
+    this._implementButtonAllowed = false;
     const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
     if (btn) {
       btn.disabled = true;
       btn.classList.remove('btn-success');
       btn.classList.add('btn-secondary');
+      btn.innerHTML = 'Implement ticket assignment';
     }
+  }
+
+  /**
+   * Update the Implement button's enabled/disabled state and label based on
+   * the current ticket checkbox selection.
+   *
+   * Three visual states:
+   *   1. selectedCount === 0        → disabled, label: "Implement ticket assignment"
+   *   2. 0 < selectedCount < total  → enabled,  label: "Implement X/Y ticket assignment"
+   *   3. selectedCount === total     → enabled,  label: "Implement ticket assignment"
+   *
+   * This method is a no-op if the workflow has not yet allowed the button
+   * (i.e. recommendations have not started arriving).
+   *
+   * @param {number} selectedCount - Number of checked ticket checkboxes
+   * @param {number} totalCount    - Total number of enabled ticket checkboxes
+   */
+  updateImplementButtonState(selectedCount, totalCount) {
+    // Only act if the workflow has reached a state where the button is allowed
+    if (!this._implementButtonAllowed) return;
+
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (!btn) return;
+
+    if (selectedCount === 0) {
+      // No tickets selected — disable
+      btn.disabled = true;
+      btn.classList.remove('btn-success');
+      btn.classList.add('btn-secondary');
+      btn.innerHTML = 'Implement ticket assignment';
+    } else if (selectedCount < totalCount) {
+      // Partial selection
+      btn.disabled = false;
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-success');
+      btn.innerHTML = `Implement ${selectedCount}/${totalCount} ticket assignment`;
+    } else {
+      // All tickets selected
+      btn.disabled = false;
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-success');
+      btn.innerHTML = 'Implement ticket assignment';
+    }
+  }
+
+  /**
+   * Re-read the current checkbox counts from the DOM and update the Implement
+   * button label accordingly.  Convenience wrapper around
+   * updateImplementButtonState() for callers that don't already have the counts.
+   */
+  refreshImplementButtonLabel() {
+    if (!this._implementButtonAllowed) return;
+
+    const checkedCount = document.querySelectorAll('.ticket-checkbox:not([disabled]):checked').length;
+    const totalCount = document.querySelectorAll('.ticket-checkbox:not([disabled])').length;
+    this.updateImplementButtonState(checkedCount, totalCount);
   }
 
   /**
@@ -689,6 +761,280 @@ class AssignmentUIManager {
 
     debugLog('[ASSIGNMENT_UI] - Rendered', visible.length, 'visible +', overflow.length, 'overflow presence indicator(s)');
   }
+
+  // ── Consensus-based implement button methods ─────────────────────────────
+
+  /**
+   * Update the stored presence count.
+   * Called from the heartbeat handler in main.js.
+   * @param {number} count - Number of active users
+   */
+  setPresenceCount(count) {
+    this._presenceCount = count;
+  }
+
+  /**
+   * Get the current presence count.
+   * @returns {number}
+   */
+  getPresenceCount() {
+    return this._presenceCount;
+  }
+
+  /**
+   * Check whether consensus mode should be active based on the current
+   * checkbox selection and presence count.
+   * @param {number} selectedCount - Number of checked ticket checkboxes
+   * @returns {boolean} true if consensus mode should be active
+   */
+  shouldRequireConsensus(selectedCount) {
+    return this._presenceCount >= 2 &&
+           selectedCount > CONSTANTS.DEFAULTS.CONSENSUS_TICKET_THRESHOLD;
+  }
+
+  /**
+   * Enter consensus mode: lock the implement button, show caution-tape UI,
+   * flag extension, tooltip, and agree toggle widget.
+   *
+   * @param {number} agreed   - Number of users who have agreed
+   * @param {number} required - Total number of users required
+   * @param {string[]} agreedList - Session IDs that have agreed
+   * @param {string} mySessionId - The current user's session ID
+   */
+  enterConsensusMode(agreed, required, agreedList = [], mySessionId = '') {
+    this._consensusActive = true;
+    this._consensusAgreed = agreed;
+    this._consensusRequired = required;
+    this._consensusUnlocked = false;
+    this._myConsensusVote = agreedList.includes(mySessionId);
+
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (!btn) return;
+
+    // Disable the button
+    btn.disabled = true;
+    btn.style.pointerEvents = 'auto'; // Allow hover for tooltip
+
+    // Remove normal button classes
+    btn.classList.remove('btn-success', 'btn-secondary');
+    btn.classList.add('btn-consensus');
+
+    // Set the button label
+    btn.innerHTML = `
+      <div class="consensus-progress-bar" style="width: ${required > 0 ? (agreed / required) * 100 : 0}%"></div>
+      <span class="consensus-btn-label">${agreed}/${required} agree</span>
+    `;
+
+    // Update tooltip
+    this._updateConsensusTooltip(btn, agreed, required);
+
+    // Create or update the flag extension
+    this._renderConsensusFlag(btn);
+
+    // Create or update the agree toggle widget
+    this._renderConsensusAgreeToggle(btn, mySessionId);
+
+    debugLog('[ASSIGNMENT_UI] - Entered consensus mode:', agreed, '/', required);
+  }
+
+  /**
+   * Update the consensus progress bar and label without re-creating the entire UI.
+   *
+   * @param {number} agreed   - Number of users who have agreed
+   * @param {number} required - Total number of users required
+   * @param {string[]} agreedList - Session IDs that have agreed
+   * @param {string} mySessionId - The current user's session ID
+   */
+  updateConsensusProgress(agreed, required, agreedList = [], mySessionId = '') {
+    this._consensusAgreed = agreed;
+    this._consensusRequired = required;
+    this._myConsensusVote = agreedList.includes(mySessionId);
+
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (!btn) return;
+
+    // Update progress bar width
+    const progressBar = btn.querySelector('.consensus-progress-bar');
+    if (progressBar) {
+      progressBar.style.width = `${required > 0 ? (agreed / required) * 100 : 0}%`;
+    }
+
+    // Update label
+    const label = btn.querySelector('.consensus-btn-label');
+    if (label) {
+      label.textContent = `${agreed}/${required} agree`;
+    }
+
+    // Update tooltip
+    this._updateConsensusTooltip(btn, agreed, required);
+
+    // Update agree button visual
+    const agreeBtn = document.getElementById('consensus-agree-btn');
+    if (agreeBtn) {
+      if (this._myConsensusVote) {
+        agreeBtn.classList.add('agreed');
+        agreeBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Agreed';
+      } else {
+        agreeBtn.classList.remove('agreed');
+        agreeBtn.innerHTML = '<i class="bi bi-hand-thumbs-up me-1"></i>Agree';
+      }
+    }
+  }
+
+  /**
+   * Unlock the implement button after consensus is achieved.
+   * Plays the unlock animation, then transitions to the normal green state.
+   */
+  unlockFromConsensus() {
+    this._consensusUnlocked = true;
+
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (!btn) return;
+
+    // Play the unlock animation
+    btn.classList.add('consensus-unlocking');
+
+    // After the animation completes, remove consensus UI and restore normal state
+    setTimeout(() => {
+      this.exitConsensusMode();
+      // Re-enable the button with normal styling
+      this.refreshImplementButtonLabel();
+    }, 900); // slightly longer than the 0.8s animation
+
+    debugLog('[ASSIGNMENT_UI] - Consensus unlocked, transitioning to normal state');
+  }
+
+  /**
+   * Exit consensus mode: remove all consensus UI elements and restore
+   * the implement button to its normal state.
+   */
+  exitConsensusMode() {
+    this._consensusActive = false;
+    this._consensusAgreed = 0;
+    this._consensusRequired = 0;
+    this._consensusUnlocked = false;
+    this._myConsensusVote = false;
+
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (btn) {
+      // Remove consensus classes
+      btn.classList.remove('btn-consensus', 'consensus-unlocking');
+      btn.style.pointerEvents = '';
+
+      // Dispose tooltip
+      const tooltip = bootstrap.Tooltip.getInstance(btn);
+      if (tooltip) tooltip.dispose();
+      btn.removeAttribute('data-bs-toggle');
+      btn.removeAttribute('data-bs-placement');
+      btn.removeAttribute('title');
+    }
+
+    // Remove flag extension
+    const flag = document.getElementById('consensus-flag');
+    if (flag) flag.remove();
+
+    // Remove agree toggle
+    const agreeToggle = document.getElementById('consensus-agree-container');
+    if (agreeToggle) agreeToggle.remove();
+
+    debugLog('[ASSIGNMENT_UI] - Exited consensus mode');
+  }
+
+  /**
+   * Whether consensus mode is currently active.
+   * @returns {boolean}
+   */
+  isConsensusActive() {
+    return this._consensusActive;
+  }
+
+  /**
+   * Whether consensus has been achieved (unlocked).
+   * @returns {boolean}
+   */
+  isConsensusUnlocked() {
+    return this._consensusUnlocked;
+  }
+
+  /**
+   * Update the Bootstrap tooltip on the implement button during consensus mode.
+   * @param {HTMLElement} btn
+   * @param {number} agreed
+   * @param {number} required
+   * @private
+   */
+  _updateConsensusTooltip(btn, agreed, required) {
+    const existing = bootstrap.Tooltip.getInstance(btn);
+    if (existing) existing.dispose();
+
+    const remaining = required - agreed;
+    const title = remaining > 0
+      ? `Consensus mode: ${remaining} more user${remaining > 1 ? 's' : ''} must agree to unlock bulk assignment (${agreed}/${required})`
+      : 'All users have agreed — unlocking...';
+
+    btn.setAttribute('data-bs-toggle', 'tooltip');
+    btn.setAttribute('data-bs-placement', 'top');
+    btn.setAttribute('title', title);
+    new bootstrap.Tooltip(btn);
+  }
+
+  /**
+   * Render the flag-like extension next to the implement button.
+   * @param {HTMLElement} btn - The implement button element
+   * @private
+   */
+  _renderConsensusFlag(btn) {
+    let flag = document.getElementById('consensus-flag');
+    if (!flag) {
+      flag = document.createElement('span');
+      flag.id = 'consensus-flag';
+      flag.className = 'consensus-flag';
+      // Insert right after the button
+      btn.insertAdjacentElement('afterend', flag);
+    }
+    flag.innerHTML = '<i class="bi bi-shield-lock"></i> Consensus required';
+  }
+
+  /**
+   * Render the agree/disagree toggle widget next to the implement button area.
+   * @param {HTMLElement} btn - The implement button element
+   * @param {string} mySessionId - The current user's session ID
+   * @private
+   */
+  _renderConsensusAgreeToggle(btn, mySessionId) {
+    let container = document.getElementById('consensus-agree-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'consensus-agree-container';
+      container.className = 'consensus-agree-toggle';
+
+      const agreeBtn = document.createElement('button');
+      agreeBtn.id = 'consensus-agree-btn';
+      agreeBtn.type = 'button';
+      agreeBtn.className = 'consensus-agree-btn';
+
+      container.appendChild(agreeBtn);
+
+      // Insert after the flag (or after the button if flag doesn't exist)
+      const flag = document.getElementById('consensus-flag');
+      const insertAfter = flag || btn;
+      insertAfter.insertAdjacentElement('afterend', container);
+    }
+
+    // Update the agree button visual
+    const agreeBtn = document.getElementById('consensus-agree-btn');
+    if (agreeBtn) {
+      if (this._myConsensusVote) {
+        agreeBtn.classList.add('agreed');
+        agreeBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Agreed';
+      } else {
+        agreeBtn.classList.remove('agreed');
+        agreeBtn.innerHTML = '<i class="bi bi-hand-thumbs-up me-1"></i>Agree';
+      }
+    }
+  }
+
+  // ── End consensus methods ────────────────────────────────────────────────
 
   /**
    * Remove assignment toggle buttons from DOM

@@ -1274,8 +1274,11 @@ class TicketRenderer {
     const selectedCountEl = document.getElementById(CONSTANTS.SELECTORS.SELECTED_TICKETS_COUNT);
     if (!selectedCountEl) return;
 
-    const checkedCount = document.querySelectorAll('.ticket-checkbox:checked').length;
-    const totalCount = document.querySelectorAll('.ticket-checkbox').length;
+    // Count only enabled (non-disabled) checkboxes for both selected and total.
+    // Disabled checkboxes belong to tickets that haven't received recommendations
+    // yet and should not factor into the Implement button's label or state.
+    const checkedCount = document.querySelectorAll('.ticket-checkbox:not([disabled]):checked').length;
+    const totalCount = document.querySelectorAll('.ticket-checkbox:not([disabled])').length;
     
     selectedCountEl.textContent = `${checkedCount}/${totalCount} selected`;
     
@@ -1517,6 +1520,25 @@ class TicketRenderer {
           'afterend',
           '<span class="badge bg-success ms-2 new-ticket-badge">New</span>'
         );
+      }
+
+      // If checkboxes are currently visible (recommendations phase), make the
+      // new ticket's checkbox visible and enabled but UNCHECKED so the user
+      // must explicitly select it.  Then update the Select All state and the
+      // Implement button label to reflect the new total.
+      const selectAllContainer = document.getElementById(CONSTANTS.SELECTORS.SELECTED_TICKETS_CONTAINER);
+      const checkboxesAreVisible = selectAllContainer && selectAllContainer.classList.contains('d-flex');
+      if (checkboxesAreVisible) {
+        const newCheckbox = hydratedItem.querySelector('.ticket-checkbox');
+        if (newCheckbox) {
+          newCheckbox.classList.remove('ticket-checkbox-hidden');
+          newCheckbox.classList.add('ticket-checkbox-visible');
+          newCheckbox.disabled = false;
+          newCheckbox.checked = false;  // New tickets are always unchecked
+        }
+        // Update Select All checkbox and selected count (triggers ticketSelectionChanged event)
+        this._updateSelectAllCheckboxState();
+        this._updateSelectedCount();
       }
     }
 

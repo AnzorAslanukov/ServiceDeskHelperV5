@@ -1183,3 +1183,194 @@ body {
 }
 
 /* ── End expiry timer bar ────────────────────────────────────────────────── */
+
+/* ── Consensus-based implement button ────────────────────────────────────── */
+
+/* Container wrapping the implement button + flag extension */
+.consensus-btn-wrapper {
+  display: inline-flex;
+  align-items: stretch;
+  position: relative;
+}
+
+/* The implement button in consensus mode (locked, amber/warning scheme) */
+.btn-consensus {
+  background-color: #b8860b !important;
+  border-color: #b8860b !important;
+  color: #ffffff !important;
+  cursor: not-allowed;
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.4s ease, border-color 0.4s ease;
+}
+
+.btn-consensus:disabled {
+  opacity: 0.85;
+  pointer-events: auto;
+}
+
+/* Caution-tape progress bar overlay inside the button */
+.consensus-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  background: repeating-linear-gradient(
+    -45deg,
+    #ffc107 0px, #ffc107 10px,
+    #212529 10px, #212529 20px
+  );
+  background-size: 28.28px 28.28px; /* sqrt(2) * 20px for seamless diagonal */
+  animation: cautionSlide 1.5s linear infinite;
+  opacity: 0.55;
+  transition: width 0.6s ease;
+  z-index: 0;
+  border-radius: inherit;
+}
+
+@keyframes cautionSlide {
+  0%   { background-position: 0 0; }
+  100% { background-position: 28.28px 0; }
+}
+
+/* Keep button text above the progress bar */
+.btn-consensus > span,
+.btn-consensus > .consensus-btn-label {
+  position: relative;
+  z-index: 1;
+}
+
+/* Flag-like extension attached to the right side of the button */
+.consensus-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.375rem 0.75rem;
+  background-color: #d4a017;
+  color: #212529;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0 0.5rem 0.5rem 0;
+  border: 2px solid #b8860b;
+  border-left: none;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.consensus-flag .bi {
+  font-size: 0.85rem;
+}
+
+/* Agree toggle widget */
+.consensus-agree-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.75rem;
+}
+
+.consensus-agree-btn {
+  padding: 0.375rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  border: 2px solid #198754;
+  background-color: transparent;
+  color: #198754;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.consensus-agree-btn:hover {
+  background-color: rgba(25, 135, 84, 0.1);
+}
+
+.consensus-agree-btn.agreed {
+  background-color: #198754;
+  color: #ffffff;
+  border-color: #198754;
+}
+
+.consensus-agree-btn.agreed:hover {
+  background-color: #157347;
+  border-color: #157347;
+}
+
+/* Unlock transition: caution-tape fills → green flash */
+.btn-consensus.consensus-unlocking {
+  animation: consensusUnlock 0.8s ease forwards;
+}
+
+.btn-consensus.consensus-unlocking .consensus-progress-bar {
+  width: 100% !important;
+  animation: cautionSlide 1.5s linear infinite, consensusFadeBar 0.8s ease forwards;
+}
+
+@keyframes consensusUnlock {
+  0%   { background-color: #b8860b; border-color: #b8860b; }
+  50%  { background-color: #d4a017; border-color: #d4a017; }
+  100% { background-color: #198754; border-color: #198754; }
+}
+
+@keyframes consensusFadeBar {
+  0%   { opacity: 0.55; }
+  60%  { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+
+/* ── Dark mode adjustments ── */
+
+[data-bs-theme="dark"] .btn-consensus {
+  background-color: #8b6914 !important;
+  border-color: #8b6914 !important;
+  color: #f0e6d2 !important;
+}
+
+[data-bs-theme="dark"] .consensus-progress-bar {
+  background: repeating-linear-gradient(
+    -45deg,
+    #d4a017 0px, #d4a017 10px,
+    #1a1a2e 10px, #1a1a2e 20px
+  );
+  background-size: 28.28px 28.28px;
+  opacity: 0.5;
+}
+
+[data-bs-theme="dark"] .consensus-flag {
+  background-color: #a07d1c;
+  color: #f0e6d2;
+  border-color: #8b6914;
+}
+
+[data-bs-theme="dark"] .consensus-agree-btn {
+  border-color: #20c997;
+  color: #20c997;
+}
+
+[data-bs-theme="dark"] .consensus-agree-btn:hover {
+  background-color: rgba(32, 201, 151, 0.12);
+}
+
+[data-bs-theme="dark"] .consensus-agree-btn.agreed {
+  background-color: #20c997;
+  color: #212529;
+  border-color: #20c997;
+}
+
+[data-bs-theme="dark"] .consensus-agree-btn.agreed:hover {
+  background-color: #1ab386;
+  border-color: #1ab386;
+}
+
+[data-bs-theme="dark"] .btn-consensus.consensus-unlocking {
+  animation: consensusUnlockDark 0.8s ease forwards;
+}
+
+@keyframes consensusUnlockDark {
+  0%   { background-color: #8b6914; border-color: #8b6914; }
+  50%  { background-color: #a07d1c; border-color: #a07d1c; }
+  100% { background-color: #198754; border-color: #198754; }
+}
+
+/* ── End consensus-based implement button ────────────────────────────────── */
