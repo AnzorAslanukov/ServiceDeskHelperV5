@@ -1211,6 +1211,11 @@ class TicketRenderer {
       });
       
       TicketRenderer._updateSelectedCount();
+
+      // Sync to other clients via server broadcast
+      if (typeof syncCheckboxState === 'function') {
+        syncCheckboxState(null, isChecked, true);
+      }
     });
 
     // Use event delegation for individual checkboxes
@@ -1225,6 +1230,12 @@ class TicketRenderer {
       if (event.target.classList.contains('ticket-checkbox') && !event.target.disabled) {
         TicketRenderer._updateSelectAllCheckboxState();
         TicketRenderer._updateSelectedCount();
+
+        // Sync to other clients via server broadcast
+        if (typeof syncCheckboxState === 'function') {
+          const ticketId = event.target.dataset.ticketId;
+          syncCheckboxState(ticketId, event.target.checked, false);
+        }
       }
     };
 

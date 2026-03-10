@@ -2102,7 +2102,7 @@ def _check_consensus_after_presence_change():
     - If all remaining users have agreed, the button auto-unlocks.
     Broadcasts updated state if consensus is active.
     """
-    global _consensus_active
+    global _consensus_active, _consensus_votes
 
     with _presence_lock:
         active_sids = set(_active_sessions.keys())
