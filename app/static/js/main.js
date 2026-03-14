@@ -1065,6 +1065,8 @@ function showNamePromptModal(onConfirm, onCancel) {
 
 /**
  * Stop the presence heartbeat and notify the server that this viewer has left.
+ * Also clears the presence indicator circles from the DOM so they don't
+ * persist on other pages (e.g. Search, Single Ticket).
  */
 function stopPresenceHeartbeat() {
   if (presenceHeartbeatInterval !== null) {
@@ -1074,6 +1076,11 @@ function stopPresenceHeartbeat() {
   sendPresenceLeave();
   window.removeEventListener('beforeunload', sendPresenceLeave);
   document.removeEventListener('visibilitychange', _onVisibilityChange);
+  // Clear presence indicator circles from the DOM so they don't remain
+  // visible after navigating away from the validation manager.
+  if (assignmentUIManager) {
+    assignmentUIManager.clearPresenceIndicators();
+  }
   debugLog('[MAIN] - Presence heartbeat stopped');
 }
 

@@ -1040,11 +1040,39 @@ class AssignmentUIManager {
    * Remove assignment toggle buttons from DOM
    */
   remove() {
-    const toggleDiv = document.getElementById(CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE)?.closest('.d-flex');
-    if (toggleDiv && toggleDiv.id !== CONSTANTS.SELECTORS.BATCH_WORKFLOW_BUTTONS) {
-      toggleDiv.remove();
+    // Remove the entire assignment toggle container (including presence indicators)
+    // by its known ID.  The previous approach used closest('.d-flex') which only
+    // found the inner wrapper div, leaving #presence-indicators in the DOM.
+    const containerById = document.getElementById('assignment-toggle-container');
+    if (containerById) {
+      containerById.remove();
+    } else {
+      // Fallback: find by looking for the single ticket toggle button
+      const toggleDiv = document.getElementById(CONSTANTS.SELECTORS.SINGLE_TICKET_TOGGLE)?.closest('.d-flex');
+      if (toggleDiv && toggleDiv.id !== CONSTANTS.SELECTORS.BATCH_WORKFLOW_BUTTONS) {
+        toggleDiv.remove();
+      }
     }
     this.hideBatchButtons();
+  }
+
+  /**
+   * Clear the presence indicator circles from the DOM.
+   * Called when the presence heartbeat is stopped (e.g. navigating away from
+   * the validation manager or switching to single-ticket mode) so that stale
+   * presence circles do not remain visible on other pages.
+   */
+  clearPresenceIndicators() {
+    const container = document.getElementById('presence-indicators');
+    if (container) {
+      // Dispose any existing popovers before clearing
+      const badge = container.querySelector('.presence-overflow-badge');
+      if (badge) {
+        const popover = bootstrap.Popover.getInstance(badge);
+        if (popover) popover.dispose();
+      }
+      container.innerHTML = '';
+    }
   }
 
   /**

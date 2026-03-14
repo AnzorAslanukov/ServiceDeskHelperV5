@@ -1678,10 +1678,12 @@ def api_validation_broadcast():
     and broadcasts every ticket event to ALL connected clients.
 
     On connect:
-    - If state == 'loaded' and cache is fresh → replay cached tickets immediately.
-    - If state == 'loading'                   → send {state: 'loading'} so the
-                                                 client can show a spinner.
-    - If state == 'idle'                      → send {state: 'idle'}.
+    - If state == 'loaded' and tickets are cached → replay cached tickets
+      immediately (regardless of cache age — the TTL only controls whether
+      /api/trigger-validation-load starts a new Athena fetch).
+    - If state == 'loading'                       → send {state: 'loading'} so
+                                                     the client can show a spinner.
+    - If state == 'idle'                          → send {state: 'idle'}.
 
     A 30-second keepalive comment is sent while waiting for new events so that
     proxies / load-balancers do not close the idle connection.
@@ -1706,15 +1708,11 @@ def api_validation_broadcast():
         current_state = _validation_state
         load_buffer_snapshot = list(_validation_load_buffer)
         cached_tickets = list(_validation_tickets)
-        fetched_at = _validation_fetched_at
-
-    now = time.time()
-    cache_fresh = (now - fetched_at) < VALIDATION_CACHE_TTL
 
     def generate():
         try:
             # ── Initial state burst ───────────────────────────────────────────
-            if current_state == 'loaded' and cache_fresh and cached_tickets:
+            if current_state == 'loaded' and cached_tickets:
                 # Replay the full cached ticket list to this late-joining client
                 yield f"event: state\ndata: {json.dumps({'state': 'loaded'})}\n\n"
                 yield f"event: count\ndata: {json.dumps({'count': len(cached_tickets)})}\n\n"
