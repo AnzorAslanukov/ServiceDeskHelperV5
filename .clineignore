@@ -3,6 +3,7 @@ __init__.py
 support_group_description.json
 support_group_keywords.json
 locations.json
+run_old.py
 
 /__pycache__/
 /services/__pycache__/

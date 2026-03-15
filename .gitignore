@@ -5,6 +5,7 @@ ir_embeddings.jsonl
 test.py
 get_guids.py
 SKILL.md
+run_old.py
 
 /misc
 /tests

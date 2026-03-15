@@ -861,13 +861,19 @@ async function handleImplementAssignment() {
     const result = await response.json();
     debugLog('[MAIN] - Assignment implementation result:', result);
 
-    // Display results
-    TicketRenderer.renderAssignmentResults(result);
+    // The server broadcasts 'implement-complete' via SSE to ALL connected
+    // clients (including this one), which triggers _applySyncedImplementComplete
+    // to remove assigned tickets and show results.  The HTTP response is used
+    // here only as a fallback in case the SSE event was missed.
+    // _applySyncedImplementComplete is idempotent (removing already-removed
+    // tickets is a no-op), so double-firing is safe.
 
   } catch (error) {
     debugLog('[MAIN] - Error implementing assignments:', error);
     TicketRenderer.renderError('Error implementing assignments: ' + error.message);
   } finally {
+    // The implement button is re-enabled by _applySyncedImplementComplete via SSE.
+    // As a safety fallback, also re-enable it here in case the SSE event is lost.
     if (implementBtn) {
       implementBtn.disabled = false;
       assignmentUIManager.refreshImplementButtonLabel();
@@ -1299,9 +1305,14 @@ function applyConsensusState(state) {
   const agreedList = state.agreed || [];
 
   if (state.active) {
+    const wasUnlocked = assignmentUIManager.isConsensusUnlocked();
+
     if (!assignmentUIManager.isConsensusActive()) {
-      // Entering consensus mode
+      // Entering consensus mode for the first time
       assignmentUIManager.enterConsensusMode(agreed, required, agreedList, mySessionId);
+    } else if (wasUnlocked && !state.unlocked) {
+      // Was unlocked but someone disagreed — re-lock the button
+      assignmentUIManager.relockFromDisagree(agreed, required, agreedList, mySessionId);
     } else {
       // Already in consensus mode — update progress
       assignmentUIManager.updateConsensusProgress(agreed, required, agreedList, mySessionId);
@@ -2069,7 +2080,7 @@ function _applySyncedPollTimer(data) {
 /**
  * Apply an implement-started event received via SSE.
  * Shows a spinner on the implement button for all clients.
- * @param {Object} data - { session_id, ticket_ids }
+ * @param {Object} data - { ticket_ids }
  */
 function _applySyncedImplementStarted(data) {
   const implementBtn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
@@ -2081,13 +2092,22 @@ function _applySyncedImplementStarted(data) {
 
 /**
  * Apply an implement-complete event received via SSE.
- * Shows the results table for all clients.
- * @param {Object} data - { results: { ... } }
+ * Removes successfully assigned tickets from the accordion and shows the
+ * results table for all connected clients.
+ * @param {Object} data - { results, errors, assigned_ticket_ids }
  */
 function _applySyncedImplementComplete(data) {
-  if (data.results) {
-    TicketRenderer.renderAssignmentResults(data.results);
+  // Remove successfully assigned tickets from the accordion immediately
+  if (data.assigned_ticket_ids && data.assigned_ticket_ids.length > 0) {
+    TicketRenderer.removeAssignedTickets(data.assigned_ticket_ids);
   }
+
+  // Show the results table
+  if (data.results) {
+    TicketRenderer.renderAssignmentResults(data);
+  }
+
+  // Re-enable the implement button and refresh its label
   const implementBtn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
   if (implementBtn) {
     implementBtn.disabled = false;

@@ -1297,6 +1297,17 @@ body {
   border-color: #157347;
 }
 
+/* Disagree state: red/warning variant shown after user has agreed */
+.consensus-agree-btn.disagreeing {
+  border-color: #dc3545;
+  color: #dc3545;
+  background-color: transparent;
+}
+
+.consensus-agree-btn.disagreeing:hover {
+  background-color: rgba(220, 53, 69, 0.1);
+}
+
 /* Unlock transition: caution-tape fills → green flash */
 .btn-consensus.consensus-unlocking {
   animation: consensusUnlock 0.8s ease forwards;
@@ -1361,6 +1372,15 @@ body {
 [data-bs-theme="dark"] .consensus-agree-btn.agreed:hover {
   background-color: #1ab386;
   border-color: #1ab386;
+}
+
+[data-bs-theme="dark"] .consensus-agree-btn.disagreeing {
+  border-color: #e5534b;
+  color: #e5534b;
+}
+
+[data-bs-theme="dark"] .consensus-agree-btn.disagreeing:hover {
+  background-color: rgba(229, 83, 75, 0.12);
 }
 
 [data-bs-theme="dark"] .btn-consensus.consensus-unlocking {

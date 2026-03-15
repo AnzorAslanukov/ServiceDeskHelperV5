@@ -416,7 +416,6 @@ class Athena:
         if resolved_support_group or username:
             dispatch_url = f"{self.base_url}/v1/task/ticket/dispatch"
             dispatch_payload = {
-                "description": "Modified ticket via API",
                 "entityIds": [entity_id]
             }
 
@@ -519,8 +518,6 @@ class Athena:
                 }
                 requests.post(fallback_comment_url, headers=headers, json=fallback_payload, timeout=30)
 
-        # Retrieve and display updated ticket details
-        self.get_ticket_data(ticket_id)
 
 
 if __name__ == "__main__" and TEST_RUN:

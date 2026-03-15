@@ -811,6 +811,9 @@ class AssignmentUIManager {
     const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
     if (!btn) return;
 
+    // Remove unlock animation class if re-entering locked state after a disagree
+    btn.classList.remove('consensus-unlocking');
+
     // Disable the button
     btn.disabled = true;
     btn.style.pointerEvents = 'auto'; // Allow hover for tooltip
@@ -829,7 +832,7 @@ class AssignmentUIManager {
     this._updateConsensusTooltip(btn, agreed, required);
 
     // Create or update the flag extension
-    this._renderConsensusFlag(btn);
+    this._renderConsensusFlag(btn, false);
 
     // Create or update the agree toggle widget
     this._renderConsensusAgreeToggle(btn, mySessionId);
@@ -868,22 +871,15 @@ class AssignmentUIManager {
     // Update tooltip
     this._updateConsensusTooltip(btn, agreed, required);
 
-    // Update agree button visual
-    const agreeBtn = document.getElementById('consensus-agree-btn');
-    if (agreeBtn) {
-      if (this._myConsensusVote) {
-        agreeBtn.classList.add('agreed');
-        agreeBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Agreed';
-      } else {
-        agreeBtn.classList.remove('agreed');
-        agreeBtn.innerHTML = '<i class="bi bi-hand-thumbs-up me-1"></i>Agree';
-      }
-    }
+    // Update agree/disagree button visual
+    this._updateAgreeDisagreeVisual();
   }
 
   /**
    * Unlock the implement button after consensus is achieved.
    * Plays the unlock animation, then transitions to the normal green state.
+   * The consensus UI (flag + disagree button) remains visible so any user
+   * can click "Disagree" to re-lock the button.
    */
   unlockFromConsensus() {
     this._consensusUnlocked = true;
@@ -894,14 +890,76 @@ class AssignmentUIManager {
     // Play the unlock animation
     btn.classList.add('consensus-unlocking');
 
-    // After the animation completes, remove consensus UI and restore normal state
+    // After the animation completes, transition to the unlocked-but-consensus-active state
     setTimeout(() => {
-      this.exitConsensusMode();
-      // Re-enable the button with normal styling
-      this.refreshImplementButtonLabel();
-    }, 900); // slightly longer than the 0.8s animation
+      // Remove consensus button styling and animation
+      btn.classList.remove('btn-consensus', 'consensus-unlocking');
+      btn.style.pointerEvents = '';
 
-    debugLog('[ASSIGNMENT_UI] - Consensus unlocked, transitioning to normal state');
+      // Dispose the consensus tooltip
+      const tooltip = bootstrap.Tooltip.getInstance(btn);
+      if (tooltip) tooltip.dispose();
+      btn.removeAttribute('data-bs-toggle');
+      btn.removeAttribute('data-bs-placement');
+      btn.removeAttribute('title');
+
+      // Re-enable the button with normal green styling
+      this.refreshImplementButtonLabel();
+
+      // Update the flag to show "Consensus achieved"
+      this._renderConsensusFlag(btn, true);
+
+      // Update the agree/disagree button visual (should show "Disagree" for users who agreed)
+      this._updateAgreeDisagreeVisual();
+
+      debugLog('[ASSIGNMENT_UI] - Consensus unlocked, implement button enabled, disagree button remains');
+    }, 900); // slightly longer than the 0.8s animation
+  }
+
+  /**
+   * Re-lock the implement button after a user disagrees post-unlock.
+   * Transitions back to the amber/caution-tape locked state while keeping
+   * the consensus UI visible.
+   *
+   * @param {number} agreed   - Number of users who have agreed
+   * @param {number} required - Total number of users required
+   * @param {string[]} agreedList - Session IDs that have agreed
+   * @param {string} mySessionId - The current user's session ID
+   */
+  relockFromDisagree(agreed, required, agreedList = [], mySessionId = '') {
+    this._consensusUnlocked = false;
+    this._consensusAgreed = agreed;
+    this._consensusRequired = required;
+    this._myConsensusVote = agreedList.includes(mySessionId);
+
+    const btn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    if (!btn) return;
+
+    // Remove unlock animation class
+    btn.classList.remove('consensus-unlocking');
+
+    // Disable the button and apply consensus styling
+    btn.disabled = true;
+    btn.style.pointerEvents = 'auto';
+    btn.classList.remove('btn-success', 'btn-secondary');
+    btn.classList.add('btn-consensus');
+
+    // Set the button label with progress bar
+    btn.innerHTML = `
+      <div class="consensus-progress-bar" style="width: ${required > 0 ? (agreed / required) * 100 : 0}%"></div>
+      <span class="consensus-btn-label">${agreed}/${required} agree</span>
+    `;
+
+    // Update tooltip
+    this._updateConsensusTooltip(btn, agreed, required);
+
+    // Update the flag back to "Consensus required"
+    this._renderConsensusFlag(btn, false);
+
+    // Update the agree/disagree button visual
+    this._updateAgreeDisagreeVisual();
+
+    debugLog('[ASSIGNMENT_UI] - Consensus re-locked after disagree:', agreed, '/', required);
   }
 
   /**
@@ -979,11 +1037,34 @@ class AssignmentUIManager {
   }
 
   /**
-   * Render the flag-like extension next to the implement button.
-   * @param {HTMLElement} btn - The implement button element
+   * Update the agree/disagree button visual based on the current user's vote.
+   * - Not voted: green outline "Agree" with thumbs-up icon
+   * - Voted (agreed): red outline "Disagree" with thumbs-down icon
    * @private
    */
-  _renderConsensusFlag(btn) {
+  _updateAgreeDisagreeVisual() {
+    const agreeBtn = document.getElementById('consensus-agree-btn');
+    if (!agreeBtn) return;
+
+    if (this._myConsensusVote) {
+      // User has agreed — show "Disagree" button (red variant)
+      agreeBtn.classList.remove('agreed');
+      agreeBtn.classList.add('disagreeing');
+      agreeBtn.innerHTML = '<i class="bi bi-hand-thumbs-down me-1"></i>Disagree';
+    } else {
+      // User has not agreed — show "Agree" button (green variant)
+      agreeBtn.classList.remove('agreed', 'disagreeing');
+      agreeBtn.innerHTML = '<i class="bi bi-hand-thumbs-up me-1"></i>Agree';
+    }
+  }
+
+  /**
+   * Render the flag-like extension next to the implement button.
+   * @param {HTMLElement} btn - The implement button element
+   * @param {boolean} unlocked - Whether consensus has been achieved
+   * @private
+   */
+  _renderConsensusFlag(btn, unlocked = false) {
     let flag = document.getElementById('consensus-flag');
     if (!flag) {
       flag = document.createElement('span');
@@ -992,7 +1073,11 @@ class AssignmentUIManager {
       // Insert right after the button
       btn.insertAdjacentElement('afterend', flag);
     }
-    flag.innerHTML = '<i class="bi bi-shield-lock"></i> Consensus required';
+    if (unlocked) {
+      flag.innerHTML = '<i class="bi bi-shield-check"></i> Consensus achieved';
+    } else {
+      flag.innerHTML = '<i class="bi bi-shield-lock"></i> Consensus required';
+    }
   }
 
   /**
@@ -1021,17 +1106,8 @@ class AssignmentUIManager {
       insertAfter.insertAdjacentElement('afterend', container);
     }
 
-    // Update the agree button visual
-    const agreeBtn = document.getElementById('consensus-agree-btn');
-    if (agreeBtn) {
-      if (this._myConsensusVote) {
-        agreeBtn.classList.add('agreed');
-        agreeBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Agreed';
-      } else {
-        agreeBtn.classList.remove('agreed');
-        agreeBtn.innerHTML = '<i class="bi bi-hand-thumbs-up me-1"></i>Agree';
-      }
-    }
+    // Update the agree/disagree button visual
+    this._updateAgreeDisagreeVisual();
   }
 
   // ── End consensus methods ────────────────────────────────────────────────

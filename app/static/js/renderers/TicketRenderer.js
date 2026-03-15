@@ -1623,6 +1623,37 @@ class TicketRenderer {
   }
 
   /**
+   * Remove successfully assigned tickets from the accordion immediately.
+   * Called after the implement-complete SSE event arrives with the list of
+   * ticket IDs that were successfully assigned.
+   *
+   * @param {string[]} ticketIds - Array of ticket IDs to remove
+   */
+  static removeAssignedTickets(ticketIds) {
+    if (!ticketIds || ticketIds.length === 0) return;
+
+    const accordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
+    if (!accordion) return;
+
+    let removedCount = 0;
+    for (const ticketId of ticketIds) {
+      // Use the child combinator to select only the top-level accordion-item
+      const item = accordion.querySelector(`> .accordion-item[data-ticket-id="${ticketId}"]`);
+      if (item) {
+        item.remove();
+        removedCount++;
+      }
+    }
+
+    if (removedCount > 0) {
+      this._updateValidationTicketCount();
+      this._updateSelectAllCheckboxState();
+      this._updateSelectedCount();
+      debugLog('[RENDERER] - Removed', removedCount, 'assigned ticket(s) from DOM');
+    }
+  }
+
+  /**
    * Strip the "New" badge from every ticket that was newly added in the previous
    * poll cycle.  Called at the start of each new poll so that the badge is only
    * visible for one countdown period after a ticket first appears.
