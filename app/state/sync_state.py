@@ -13,6 +13,7 @@ from app.state import validation_cache
 _lock = threading.Lock()
 _checkbox_state: dict = {}           # ticket_id -> bool
 _assignment_selections: dict = {}    # ticket_id -> {field: value, ...}
+_assignment_editors: dict = {}       # ticket_id -> {field: {session_id, label, color}}
 _next_poll_epoch_ms: int = 0
 _implement_in_progress: bool = False
 
@@ -57,6 +58,37 @@ def get_assignment_selections() -> dict:
         return {k: dict(v) for k, v in _assignment_selections.items()}
 
 
+# ── Assignment editor tracking ────────────────────────────────────────────────
+
+def set_assignment_editor(ticket_id: str, field: str, session_id: str,
+                          label: str, color: str) -> None:
+    """Record which user last changed a particular field on a ticket."""
+    with _lock:
+        if ticket_id not in _assignment_editors:
+            _assignment_editors[ticket_id] = {}
+        _assignment_editors[ticket_id][field] = {
+            'session_id': session_id,
+            'label': label,
+            'color': color,
+        }
+
+
+def clear_assignment_editor(ticket_id: str, field: str) -> None:
+    """Remove editor attribution for a specific field (e.g. when manual SG is cleared)."""
+    with _lock:
+        if ticket_id in _assignment_editors:
+            _assignment_editors[ticket_id].pop(field, None)
+            if not _assignment_editors[ticket_id]:
+                del _assignment_editors[ticket_id]
+
+
+def get_assignment_editors() -> dict:
+    """Return the full editor attribution map: ticket_id -> {field: {session_id, label, color}}."""
+    with _lock:
+        return {k: {f: dict(v) for f, v in fields.items()}
+                for k, fields in _assignment_editors.items()}
+
+
 # ── Poll timer sync ──────────────────────────────────────────────────────────
 
 def set_next_poll(epoch_ms: int) -> None:
@@ -86,11 +118,12 @@ def is_implement_in_progress() -> bool:
 # ── Purge helpers ─────────────────────────────────────────────────────────────
 
 def purge_tickets(ticket_ids: list[str]) -> None:
-    """Remove checkbox and assignment state for the given ticket IDs."""
+    """Remove checkbox, assignment, and editor state for the given ticket IDs."""
     with _lock:
         for tid in ticket_ids:
             _checkbox_state.pop(tid, None)
             _assignment_selections.pop(tid, None)
+            _assignment_editors.pop(tid, None)
 
 
 # ── Broadcast helpers ─────────────────────────────────────────────────────────
@@ -108,12 +141,16 @@ def broadcast_checkbox(ticket_id: str | None, checked: bool, is_select_all: bool
         }, buffer=False)
 
 
-def broadcast_assignment(ticket_id: str, field: str, value: str) -> None:
-    validation_cache.broadcast('assignment-selection-sync', {
+def broadcast_assignment(ticket_id: str, field: str, value: str,
+                         editor_info: dict | None = None) -> None:
+    payload = {
         'ticket_id': ticket_id,
         'field': field,
         'value': value,
-    }, buffer=False)
+    }
+    if editor_info:
+        payload['editor'] = editor_info
+    validation_cache.broadcast('assignment-selection-sync', payload, buffer=False)
 
 
 def broadcast_poll_timer(epoch_ms: int) -> None:

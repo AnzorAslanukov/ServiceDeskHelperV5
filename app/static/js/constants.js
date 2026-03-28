@@ -78,8 +78,6 @@ const CONSTANTS = {
     SEARCH_TICKETS: '/api/search-tickets',
     GET_TICKET_ADVICE: '/api/get-ticket-advice',
     GET_TICKET_ADVICE_STREAM: '/api/get-ticket-advice-stream',
-    GET_VALIDATION_TICKETS: '/api/get-validation-tickets',
-    GET_VALIDATION_TICKETS_STREAM: '/api/get-validation-tickets-stream',
     CHECK_VALIDATION_TICKETS: '/api/check-validation-tickets',
     GET_SINGLE_VALIDATION_TICKET: '/api/get-single-validation-ticket',
     TRIGGER_VALIDATION_LOAD: '/api/trigger-validation-load',
@@ -97,7 +95,8 @@ const CONSTANTS = {
     SYNC_ASSIGNMENT_SELECTION: '/api/sync-assignment-selection',
     SYNC_POLL_TIMER: '/api/sync-poll-timer',
     SYNC_IMPLEMENT: '/api/sync-implement',
-    SYNC_STATE: '/api/sync-state'
+    SYNC_STATE: '/api/sync-state',
+    UI_STATE: '/api/ui-state'
   },
 
   // Default configuration values

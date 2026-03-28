@@ -11,6 +11,7 @@ from services.output import Output
 from app.config import DEBUG
 from app.state import validation_cache
 from app.state import recommendation_state
+from app.state import ui_state
 
 recommendations_bp = Blueprint('recommendations', __name__)
 
@@ -40,6 +41,7 @@ def api_toggle_recommendations():
 
     if active:
         recommendation_state.clear_errors()
+        ui_state.set_recommendations_loading()
 
         loaded_tickets = validation_cache.get_tickets()
         ticket_ids = [t['id'] for t in loaded_tickets]
@@ -60,6 +62,7 @@ def api_toggle_recommendations():
             )
     else:
         recommendation_state.signal_stop()
+        ui_state.set_recommendations_toggled_off()
         if DEBUG:
             output.add_line('toggle-recommendations: OFF — stop event set')
 

@@ -90,3 +90,20 @@ def get_active_count() -> int:
     """Return the number of currently active sessions."""
     with _lock:
         return len(_active_sessions)
+
+
+def get_session_info(session_id: str) -> dict | None:
+    """
+    Read-only lookup of a session's color and label.
+    Returns ``{session_id, color, label}`` or ``None`` if the session is not active.
+    Does NOT refresh the session's last_seen timestamp.
+    """
+    with _lock:
+        info = _active_sessions.get(session_id)
+        if info is None:
+            return None
+        return {
+            'session_id': session_id,
+            'color': info['color'],
+            'label': info['label'],
+        }

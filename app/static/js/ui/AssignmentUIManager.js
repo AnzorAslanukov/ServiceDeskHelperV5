@@ -109,6 +109,15 @@ class AssignmentUIManager {
       this.showSearchInput();
       this.hideBatchButtons();
       this._updatePlaceholder(CONSTANTS.PLACEHOLDERS.SINGLE_TICKET);
+
+      // Reset workflow state and clean up multi-ticket UI artifacts
+      this.exitConsensusMode();
+      this.hideRecommendationProgress();
+      this.recommendationToggleActive = false;
+      this._implementButtonAllowed = false;
+      this.workflowState = 'idle';
+      this.totalTickets = 0;
+      this.completedRecommendations = 0;
     } else {
       this.hideSearchInput();
       this.showBatchButtons();
@@ -231,6 +240,7 @@ class AssignmentUIManager {
       this._updateRecommendationTooltip(btn, 'on');
     } else {
       btn.classList.add('recommendation-toggle-off');
+      btn.innerHTML = 'Get ticket recommendations';
       this._updateRecommendationTooltip(btn, 'off');
     }
   }
@@ -1111,6 +1121,174 @@ class AssignmentUIManager {
   }
 
   // ── End consensus methods ────────────────────────────────────────────────
+
+  // ── Server-driven UI state (single source of truth) ──────────────────────
+
+  /**
+   * Apply a UI state snapshot received from the server.
+   *
+   * This is the **only** method that should set button labels, disabled
+   * states, and CSS classes for the three workflow buttons.  The server
+   * is the single source of truth; the frontend never computes these
+   * values locally.
+   *
+   * @param {Object} state - The full ui-state-update payload from the server
+   */
+  applyUIState(state) {
+    if (!state || !state.buttons) return;
+
+    debugLog('[ASSIGNMENT_UI] - applyUIState: phase =', state.workflow_phase);
+
+    // ── 1. Get validation tickets button ─────────────────────────────────
+    const gvtBtn = document.getElementById(CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN);
+    const gvtWrapper = document.getElementById(CONSTANTS.SELECTORS.GET_VALIDATION_TICKETS_BTN_WRAPPER);
+    const gvt = state.buttons.get_validation_tickets;
+
+    if (gvtBtn && gvt) {
+      // Tear down any existing tooltip
+      const existingTip = bootstrap.Tooltip.getInstance(gvtBtn);
+      if (existingTip) existingTip.dispose();
+      gvtBtn.removeAttribute('data-bs-toggle');
+      gvtBtn.removeAttribute('data-bs-placement');
+      gvtBtn.removeAttribute('title');
+      if (gvtWrapper) {
+        const wrapperTip = bootstrap.Tooltip.getInstance(gvtWrapper);
+        if (wrapperTip) wrapperTip.dispose();
+        gvtWrapper.removeAttribute('data-bs-toggle');
+        gvtWrapper.removeAttribute('data-bs-placement');
+        gvtWrapper.removeAttribute('title');
+        gvtWrapper.style.cursor = '';
+      }
+
+      // Reset overrides
+      gvtBtn.style.pointerEvents = '';
+      gvtBtn.style.cursor = '';
+
+      gvtBtn.disabled = gvt.disabled;
+      gvtBtn.innerHTML = gvt.label;
+
+      switch (gvt.style) {
+        case 'loading':
+          gvtBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span>${gvt.label}`;
+          break;
+        case 'locked':
+          gvtBtn.style.pointerEvents = 'auto';
+          gvtBtn.style.cursor = 'not-allowed';
+          gvtBtn.setAttribute('data-bs-toggle', 'tooltip');
+          gvtBtn.setAttribute('data-bs-placement', 'top');
+          gvtBtn.setAttribute('title', 'All validation tickets have been successfully loaded');
+          new bootstrap.Tooltip(gvtBtn);
+          if (gvtWrapper) gvtWrapper.style.cursor = 'not-allowed';
+          break;
+        // 'primary' — default enabled state, no special handling needed
+      }
+    }
+
+    // ── 2. Get recommendations button ────────────────────────────────────
+    const recBtn = document.getElementById(CONSTANTS.SELECTORS.GET_RECOMMENDATIONS_BTN);
+    const rec = state.buttons.get_recommendations;
+
+    if (recBtn && rec) {
+      recBtn.disabled = rec.disabled;
+
+      // Strip all possible state classes
+      recBtn.classList.remove(
+        'btn-primary', 'btn-secondary',
+        'recommendation-toggle-off', 'recommendation-toggle-on',
+        'recommendation-toggle-disabled'
+      );
+
+      // Tear down any existing tooltip
+      const existingRecTip = bootstrap.Tooltip.getInstance(recBtn);
+      if (existingRecTip) existingRecTip.dispose();
+
+      switch (rec.style) {
+        case 'disabled':
+          recBtn.classList.add('recommendation-toggle-disabled');
+          recBtn.innerHTML = rec.label;
+          recBtn.removeAttribute('data-bs-toggle');
+          recBtn.removeAttribute('data-bs-placement');
+          recBtn.removeAttribute('title');
+          break;
+        case 'toggle-off':
+          recBtn.classList.add('recommendation-toggle-off');
+          recBtn.innerHTML = rec.label;
+          recBtn.setAttribute('data-bs-toggle', 'tooltip');
+          recBtn.setAttribute('data-bs-placement', 'top');
+          recBtn.setAttribute('title', 'Click to enable AI-generated recommendations for validation tickets');
+          new bootstrap.Tooltip(recBtn);
+          break;
+        case 'toggle-on':
+          recBtn.classList.add('recommendation-toggle-on');
+          // If label contains "Processing", show spinner
+          if (rec.label.toLowerCase().includes('processing')) {
+            recBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span>${rec.label}`;
+          } else {
+            recBtn.innerHTML = rec.label;
+          }
+          recBtn.setAttribute('data-bs-toggle', 'tooltip');
+          recBtn.setAttribute('data-bs-placement', 'top');
+          recBtn.setAttribute('title', 'Click to turn off AI-generated recommendations for validation tickets');
+          new bootstrap.Tooltip(recBtn);
+          break;
+      }
+
+      // Keep the local toggle flag in sync so click handlers know the current state
+      this.recommendationToggleActive = state.recommendation_toggle_active;
+    }
+
+    // ── 3. Implement assignment button ───────────────────────────────────
+    const impBtn = document.getElementById(CONSTANTS.SELECTORS.IMPLEMENT_ASSIGNMENT_BTN);
+    const imp = state.buttons.implement_assignment;
+
+    if (impBtn && imp) {
+      // Only apply if consensus mode is NOT active — consensus has its own
+      // button rendering logic that should not be overwritten.
+      if (!this._consensusActive) {
+        impBtn.disabled = imp.disabled;
+
+        impBtn.classList.remove('btn-success', 'btn-secondary', 'btn-consensus', 'consensus-unlocking');
+        impBtn.style.pointerEvents = '';
+
+        switch (imp.style) {
+          case 'success':
+            impBtn.classList.add('btn-success');
+            impBtn.innerHTML = imp.label;
+            break;
+          case 'loading':
+            impBtn.classList.add('btn-secondary');
+            impBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span>${imp.label}`;
+            break;
+          case 'secondary':
+          default:
+            impBtn.classList.add('btn-secondary');
+            impBtn.innerHTML = imp.label;
+            break;
+        }
+      }
+
+      // Track whether the workflow allows the implement button
+      this._implementButtonAllowed = (imp.style === 'success' || imp.style === 'loading');
+    }
+
+    // ── 4. Update internal workflow state ────────────────────────────────
+    this.workflowState = state.workflow_phase || 'idle';
+
+    // ── 5. Recommendation progress ──────────────────────────────────────
+    if (state.recommendation_progress) {
+      const prog = state.recommendation_progress;
+      if (prog.complete_message) {
+        // Show completion message briefly
+        this.showRecommendationComplete(prog.total || 0);
+      } else if (prog.visible) {
+        this.showRecommendationProgress(
+          prog.current, prog.total, prog.current_ticket_id
+        );
+      }
+    }
+  }
+
+  // ── End server-driven UI state ───────────────────────────────────────────
 
   /**
    * Remove assignment toggle buttons from DOM

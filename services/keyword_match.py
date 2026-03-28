@@ -7,9 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from services.athena import Athena
 from services.output import Output
-
-# Global debug flag - set to True to enable logging to output.txt
-DEBUG = False
+from services.config import DEBUG_KEYWORD_MATCH as DEBUG
 
 
 class KeywordMatch:

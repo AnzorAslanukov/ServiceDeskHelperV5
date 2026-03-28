@@ -1,16 +1,12 @@
 .env
 output.txt
-run_embedding.py
 ir_embeddings.jsonl
 test.py
 get_guids.py
 SKILL.md
-run_old.py
 
 /misc
 /tests
 /documents
 /__pycache__
 /services/__pycache__
-/app/static/static_test
-/process_summaries/

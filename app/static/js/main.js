@@ -11,8 +11,6 @@ console.log('Service Desk Helper - Main script loaded. ToggleButton available:',
 let searchUIManager;
 let assignmentUIManager;
 let navigationManager;
-let batchProcessor;
-
 // ─── Validation queue polling state ──────────────────────────────────────────
 let validationPollingInterval = null;
 let validationAlignmentTimeout = null;  // one-shot timeout used to align to epoch boundary
@@ -33,35 +31,6 @@ let presenceHeartbeatInterval = null;
 let mySessionId = null;
 let myPresenceColor = null;
 let myDisplayName = null;
-
-/**
- * DEBUG: set to true to inject 16 synthetic presence sessions so the
- * overflow badge UI can be tested without needing 16 real browser tabs.
- * The mock sessions are injected in handlePresenceUpdate() before the
- * data reaches renderPresenceIndicators().
- * Set back to false (or leave false) for normal operation.
- */
-const DEBUG_PRESENCE_MOCK = false;
-
-/**
- * DEBUG: set to true to use dummy recommendation data instead of calling
- * the real LLM pipeline. This allows rapid UI testing of the "Get ticket
- * recommendations" workflow without waiting for the text generation model.
- * Requires tests/dummy_recommendations.js to be loaded (see index.html).
- * Set back to false for normal operation.
- */
-const DEBUG_DUMMY_RECOMMENDATIONS = false;
-
-/**
- * DEBUG: set to true to prevent the "Implement ticket assignment" button from
- * actually calling the Athena API to assign tickets.  When active, the button
- * still runs all client-side logic (collecting selections, building the
- * assignments array, rendering a results table) but the POST to
- * /api/implement-assignments is skipped and a mock result is shown instead.
- * This allows safe UI testing when recommendation data is inaccurate.
- * Set back to false for normal (real assignment) operation.
- */
-const DEBUG_HARD_STOP_ASSIGNMENT = true;
 
 // ─── Support group names cache ───────────────────────────────────────────────
 let _supportGroupNamesCache = null;
@@ -147,9 +116,6 @@ function initializeManagers() {
     }
   });
 
-  // Batch Processor - handles concurrent API requests
-  batchProcessor = new BatchProcessor(CONSTANTS.DEFAULTS.BATCH_SIZE);
-
   debugLog('[MAIN] - Managers initialized');
 }
 
@@ -214,8 +180,10 @@ function attachAssignmentEventListeners() {
   assignmentUIManager.attachToggleListeners(
     () => {
       debugLog('[MAIN] - Single ticket mode selected');
+      stopValidationPolling();
       stopPresenceHeartbeat();
       stopValidationBroadcastListener();
+      TicketRenderer.clear();
     },
     () => {
       debugLog('[MAIN] - Multiple tickets mode selected');
@@ -425,40 +393,6 @@ function handleSingleTicketAssignment(ticketId, searchButton) {
 }
 
 /**
- * Handle get validation tickets button click
- */
-async function handleGetValidationTickets() {
-  debugLog('[MAIN] - Get validation tickets clicked');
-
-  TicketRenderer.renderLoading();
-  assignmentUIManager.disableRecommendationsButton();
-
-  try {
-    const response = await fetch(CONSTANTS.API.GET_VALIDATION_TICKETS, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    debugLog('[MAIN] - Validation tickets API response:', data);
-
-    TicketRenderer.renderValidationTickets(data);
-
-    // Enable the recommendations button
-    assignmentUIManager.enableRecommendationsButton();
-
-  } catch (error) {
-    debugLog('[MAIN] - Error fetching validation tickets:', error);
-    TicketRenderer.renderError('Error loading validation tickets: ' + error.message);
-  }
-}
-
-/**
  * Handle get validation tickets button click.
  *
  * Instead of opening its own SSE stream, this function POSTs to
@@ -532,10 +466,6 @@ async function handleGetValidationTicketsStream() {
   }
 }
 
-// ─── Recommendation toggle cancellation flag ─────────────────────────────────
-let _recommendationCancelled = false;
-// ─────────────────────────────────────────────────────────────────────────────
-
 /**
  * Handle get ticket recommendations button click (toggle behavior).
  *
@@ -545,24 +475,21 @@ let _recommendationCancelled = false;
  *              clients via SSE.
  *   ON  → OFF: Tells the server to stop processing new tickets. Existing
  *              recommendations are preserved. All clients are notified via SSE.
- *
- * In DEBUG_DUMMY_RECOMMENDATIONS mode, recommendations are generated locally
- * using dummy data (no server call, no cross-client sync). This is a
- * frontend-only debug tool for rapid UI testing.
  */
 async function handleGetRecommendations() {
   debugLog('[MAIN] - Get ticket recommendations toggle clicked');
 
-  // ── Dummy recommendation mode (local-only, no cross-client sync) ───────────
-  if (DEBUG_DUMMY_RECOMMENDATIONS) {
-    await _handleGetRecommendationsDummy();
-    return;
-  }
-  // ── End dummy recommendation mode ──────────────────────────────────────────
-
   // ── Toggle OFF path ────────────────────────────────────────────────────────
   if (assignmentUIManager.isRecommendationToggleActive()) {
     debugLog('[MAIN] - Toggling recommendations OFF (server-side)');
+
+    // Immediately update local UI so the button resets without waiting for SSE.
+    // The SSE broadcast will also call _applySyncedRecommendationToggle for
+    // this client and all others, but the local update here ensures the button
+    // text is cleared even if the SSE event is delayed or lost.
+    assignmentUIManager.setRecommendationToggleState(false);
+    assignmentUIManager._setGetRecommendationsButtonState(true, false);
+    assignmentUIManager.hideRecommendationProgress();
 
     try {
       const response = await fetch(CONSTANTS.API.TOGGLE_RECOMMENDATIONS, {
@@ -577,16 +504,25 @@ async function handleGetRecommendations() {
 
       const result = await response.json();
       debugLog('[MAIN] - Toggle OFF response:', result);
-      // The server broadcasts recommendation-toggle { active: false } to all
-      // clients via SSE. The _applySyncedRecommendationToggle handler will
-      // update the UI for this client and all others.
+      // The server also broadcasts recommendation-toggle { active: false } to
+      // all clients via SSE. The _applySyncedRecommendationToggle handler will
+      // update the UI for other clients (and is idempotent for this client).
     } catch (error) {
       debugLog('[MAIN] - Error toggling recommendations off:', error);
-      // Fallback: update local state directly if the server call fails
-      assignmentUIManager.setRecommendationToggleState(false);
-      assignmentUIManager.hideRecommendationProgress();
-      startValidationPolling();
+      // Local UI was already updated above; just ensure polling resumes.
     }
+
+    // Determine post-toggle workflow state
+    const hasAnyRecommendation = document.querySelector(
+      '[id^="recommendations-"] .card, [id^="recommendations-"] .support-group-selector'
+    );
+    if (hasAnyRecommendation) {
+      assignmentUIManager.enableImplementButton();
+      assignmentUIManager.workflowState = 'recommendations-complete';
+    } else {
+      assignmentUIManager.setWorkflowState('tickets-loaded');
+    }
+    startValidationPolling();
 
     return;
   }
@@ -622,90 +558,6 @@ async function handleGetRecommendations() {
   } catch (error) {
     debugLog('[MAIN] - Error toggling recommendations on:', error);
     alert('Error starting recommendations: ' + error.message);
-  }
-}
-
-/**
- * Handle dummy recommendation mode (local-only, no cross-client sync).
- * This is a frontend-only debug tool for rapid UI testing without the LLM.
- * @private
- */
-async function _handleGetRecommendationsDummy() {
-  // ── Toggle OFF path (dummy) ────────────────────────────────────────────────
-  if (assignmentUIManager.isRecommendationToggleActive()) {
-    debugLog('[MAIN] - [DUMMY] Toggling recommendations OFF');
-    _recommendationCancelled = true;
-    assignmentUIManager.setRecommendationToggleState(false);
-    assignmentUIManager.hideRecommendationProgress();
-    startValidationPolling();
-
-    const hasAnyRecommendation = document.querySelector(
-      '[id^="recommendations-"] .card, [id^="recommendations-"] .support-group-selector'
-    );
-    if (hasAnyRecommendation) {
-      assignmentUIManager.enableImplementButton();
-      assignmentUIManager.workflowState = 'recommendations-complete';
-    } else {
-      assignmentUIManager.setWorkflowState('tickets-loaded');
-    }
-    return;
-  }
-
-  // ── Toggle ON path (dummy) ─────────────────────────────────────────────────
-  debugLog('[MAIN] - [DUMMY] DEBUG_DUMMY_RECOMMENDATIONS active: using dummy data');
-
-  const validationAccordion = document.getElementById(CONSTANTS.SELECTORS.VALIDATION_ACCORDION);
-  if (!validationAccordion) {
-    alert('Please fetch validation tickets first by clicking "Get validation tickets".');
-    return;
-  }
-
-  const ticketItems = BatchProcessor.collectTicketItems();
-  if (ticketItems.length === 0) {
-    alert('No tickets found to process.');
-    return;
-  }
-
-  _recommendationCancelled = false;
-  assignmentUIManager.setWorkflowState('recommendations-loading');
-  stopValidationPolling();
-  TicketRenderer.showPollingPausedMessage();
-
-  let checkboxesShown = false;
-  assignmentUIManager.showRecommendationProgress(1, ticketItems.length, ticketItems[0].id);
-
-  const DUMMY_DELAY_MS = 150;
-
-  for (let i = 0; i < ticketItems.length; i++) {
-    if (_recommendationCancelled) {
-      debugLog('[MAIN] - [DUMMY] Recommendation processing cancelled at ticket', i + 1);
-      break;
-    }
-
-    const item = ticketItems[i];
-    assignmentUIManager.showRecommendationProgress(i + 1, ticketItems.length, item.id);
-
-    const dummyData = getDummyRecommendation(item.id, item.index);
-    TicketRenderer.renderRecommendations(dummyData, true, item.index);
-    TicketRenderer.storeRecommendationData(item.index, dummyData);
-
-    if (!checkboxesShown) {
-      TicketRenderer.showTicketCheckboxes();
-      checkboxesShown = true;
-    }
-
-    assignmentUIManager.updateRecommendationProgress(i + 1, ticketItems.length);
-    debugLog('[MAIN] - [DUMMY] Rendered recommendation for ticket', item.id);
-
-    if (i < ticketItems.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, DUMMY_DELAY_MS));
-    }
-  }
-
-  if (!_recommendationCancelled) {
-    assignmentUIManager.showRecommendationComplete(ticketItems.length);
-    startValidationPolling();
-    debugLog('[MAIN] - [DUMMY] All dummy recommendations complete');
   }
 }
 
@@ -821,31 +673,6 @@ async function handleImplementAssignment() {
     implementBtn.disabled = true;
     implementBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Assigning...';
   }
-
-  // ── Hard stop guard ──────────────────────────────────────────────────────
-  // When DEBUG_HARD_STOP_ASSIGNMENT is true, skip the actual API call and
-  // render a mock result instead.  All client-side logic (selection, building
-  // the assignments array) still runs so the UI can be tested end-to-end.
-  if (DEBUG_HARD_STOP_ASSIGNMENT) {
-    debugLog('[MAIN] - DEBUG_HARD_STOP_ASSIGNMENT is ON — skipping actual assignment API call');
-    debugLog('[MAIN] - Would have assigned:', assignments);
-
-    TicketRenderer.renderAssignmentResults({
-      results: assignments.map(a => ({
-        ticket_id: a.ticket_id,
-        success: true,
-        support_group: a.support_group || 'N/A',
-        message: '[DEBUG] Hard stop active — no actual assignment made'
-      }))
-    });
-
-    if (implementBtn) {
-      implementBtn.disabled = false;
-      assignmentUIManager.refreshImplementButtonLabel();
-    }
-    return;
-  }
-  // ── End hard stop guard ──────────────────────────────────────────────────
 
   try {
     const response = await fetch('/api/implement-assignments', {
@@ -1162,45 +989,15 @@ function sendPresenceLeave() {
 
 /**
  * Update the presence indicator UI with the latest session list.
- * When DEBUG_PRESENCE_MOCK is true, the real session list is replaced with
- * 16 synthetic sessions so the overflow badge can be tested visually.
  * @param {Array} sessions - Array of { session_id, color, label } objects
  */
 function handlePresenceUpdate(sessions) {
   if (!assignmentUIManager) return;
 
-  let displaySessions = sessions;
-
-  if (DEBUG_PRESENCE_MOCK) {
-    const mockColors = [
-      '#0d6efd','#198754','#fd7e14','#6f42c1','#0dcaf0','#dc3545','#6610f2','#d63384',
-      '#20c997','#ffc107','#0d9488','#7c3aed','#db2777','#ea580c','#16a34a','#2563eb'
-    ];
-    const mockNames = [
-      'Alice Johnson','Bob Smith','Carol White','David Brown','Eve Davis',
-      'Frank Miller','Grace Wilson','Henry Moore','Iris Taylor','Jack Anderson',
-      'Karen Thomas','Liam Jackson','Mia Harris','Noah Martin','Olivia Lee','Paul Walker'
-    ];
-    displaySessions = mockNames.map((name, i) => ({
-      session_id: `mock-session-${i}`,
-      color: mockColors[i % mockColors.length],
-      label: name
-    }));
-    // Keep the real session at index 0 so "(you)" still appears correctly
-    if (mySessionId) {
-      displaySessions[0] = {
-        session_id: mySessionId,
-        color: myPresenceColor || mockColors[0],
-        label: myDisplayName || 'You'
-      };
-    }
-    debugLog('[MAIN] - DEBUG_PRESENCE_MOCK active: injecting', displaySessions.length, 'mock sessions');
-  }
-
   // Update the presence count in the assignment UI manager for consensus checks
-  assignmentUIManager.setPresenceCount(displaySessions.length);
+  assignmentUIManager.setPresenceCount(sessions.length);
 
-  assignmentUIManager.renderPresenceIndicators(displaySessions, mySessionId);
+  assignmentUIManager.renderPresenceIndicators(sessions, mySessionId);
 }
 
 // ─── End presence heartbeat ───────────────────────────────────────────────────
@@ -1551,6 +1348,15 @@ function startValidationBroadcastListener() {
       localStorage.setItem(CONSTANTS.STORAGE_KEYS.PRESENCE_SESSION_ID, mySessionId);
     }
   }
+  // Also ensure cached presence color and display name are loaded from
+  // localStorage so that optimistic editor attribution works even before
+  // the first heartbeat response arrives.
+  if (!myPresenceColor) {
+    myPresenceColor = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_COLOR) || null;
+  }
+  if (!myDisplayName) {
+    myDisplayName = localStorage.getItem(CONSTANTS.STORAGE_KEYS.PRESENCE_DISPLAY_NAME) || null;
+  }
 
   const url = `${CONSTANTS.API.VALIDATION_BROADCAST}?session_id=${encodeURIComponent(mySessionId)}`;
   debugLog('[MAIN] - Opening validation broadcast listener:', url);
@@ -1875,14 +1681,25 @@ function startValidationBroadcastListener() {
       const data = JSON.parse(event.data);
       debugLog('[MAIN] - Broadcast recommendation-progress:', data);
       if (assignmentUIManager) {
-        assignmentUIManager.updateRecommendationProgress(data.completed, data.total);
+        // Only update progress and transition to 'recommendations-complete'
+        // if the toggle is still active.  In-flight LLM requests continue
+        // after the user toggles OFF, so stale recommendation-progress
+        // events can arrive after the toggle-off.  Without this guard the
+        // stale event would call setWorkflowState('recommendations-complete')
+        // which forcibly sets recommendationToggleActive = true and re-applies
+        // the ON visual to the button.
+        if (assignmentUIManager.isRecommendationToggleActive()) {
+          assignmentUIManager.updateRecommendationProgress(data.completed, data.total);
 
-        // When all recommendations are complete, show the completion message
-        // and resume polling
-        if (data.completed > 0 && data.completed >= data.total) {
-          assignmentUIManager.showRecommendationComplete(data.total);
-          startValidationPolling();
-          debugLog('[MAIN] - All server-side recommendations complete');
+          // When all recommendations are complete, show the completion message
+          // and resume polling
+          if (data.completed > 0 && data.completed >= data.total) {
+            assignmentUIManager.showRecommendationComplete(data.total);
+            startValidationPolling();
+            debugLog('[MAIN] - All server-side recommendations complete');
+          }
+        } else {
+          debugLog('[MAIN] - Ignoring recommendation-progress (toggle is OFF)');
         }
       }
     } catch (e) {
@@ -1898,6 +1715,19 @@ function startValidationBroadcastListener() {
       _applySyncStateBurst(data);
     } catch (e) {
       debugLog('[MAIN] - Error parsing sync-state-burst event:', e);
+    }
+  });
+
+  // ── ui-state-update (server-driven button state) ───────────────────────────
+  validationBroadcastSource.addEventListener('ui-state-update', (event) => {
+    try {
+      const state = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast ui-state-update:', state);
+      if (assignmentUIManager) {
+        assignmentUIManager.applyUIState(state);
+      }
+    } catch (e) {
+      debugLog('[MAIN] - Error parsing ui-state-update event:', e);
     }
   });
 
@@ -1938,6 +1768,13 @@ let _applyingSyncedCheckbox = false;
  * the server to prevent the local change listener from re-posting.
  */
 let _applyingSyncedAssignment = false;
+
+/**
+ * Local editor attribution state.
+ * Maps ticket_id → { field → { session_id, label, color } }.
+ * Updated from SSE broadcasts and used to drive header coloring.
+ */
+const _editorState = {};
 
 /**
  * Apply a checkbox-sync event received via SSE.
@@ -2061,6 +1898,20 @@ function _applySyncedAssignmentSelection(data) {
       const radios = container.querySelectorAll(`input[name="priority-selector-batch-${index}"]`);
       radios.forEach(r => { r.checked = (r.value === value); });
     }
+
+    // ── Editor attribution ─────────────────────────────────────────────────
+    if (data.editor) {
+      if (!_editorState[ticket_id]) _editorState[ticket_id] = {};
+      _editorState[ticket_id][field] = data.editor;
+    } else if (!value && _editorState[ticket_id]) {
+      // Field was cleared — remove editor for this field
+      delete _editorState[ticket_id][field];
+      if (Object.keys(_editorState[ticket_id]).length === 0) {
+        delete _editorState[ticket_id];
+      }
+    }
+    // Apply visual editor attribution to the header
+    TicketRenderer.applyEditorAttribution(ticket_id, _editorState[ticket_id] || null);
   } finally {
     _applyingSyncedAssignment = false;
   }
@@ -2190,17 +2041,42 @@ function _applySyncStateBurst(data) {
     }
   }
 
+  // Apply editor attribution state (must be loaded BEFORE assignments so that
+  // _applySyncedAssignmentSelection can merge editor info from the burst).
+  if (data.editors) {
+    for (const [ticketId, fields] of Object.entries(data.editors)) {
+      _editorState[ticketId] = fields;
+    }
+  }
+
   // Apply assignment selections
   if (data.assignments) {
     _applyingSyncedAssignment = true;
     try {
       for (const [ticketId, selections] of Object.entries(data.assignments)) {
         for (const [field, value] of Object.entries(selections)) {
-          _applySyncedAssignmentSelection({ ticket_id: ticketId, field, value });
+          // Build a synthetic event that includes editor info if available
+          const editorInfo = (_editorState[ticketId] && _editorState[ticketId][field])
+            ? _editorState[ticketId][field]
+            : undefined;
+          _applySyncedAssignmentSelection({
+            ticket_id: ticketId,
+            field,
+            value,
+            editor: editorInfo
+          });
         }
       }
     } finally {
       _applyingSyncedAssignment = false;
+    }
+  }
+
+  // Apply editor attribution visuals for tickets that have editors but may
+  // not have had assignment selections (edge case safety)
+  if (data.editors) {
+    for (const [ticketId, fields] of Object.entries(data.editors)) {
+      TicketRenderer.applyEditorAttribution(ticketId, fields);
     }
   }
 
@@ -2232,16 +2108,51 @@ function syncCheckboxState(ticketId, checked, isSelectAll = false) {
 /**
  * POST an assignment selection change to the server for cross-client synchronisation.
  * Called from TicketRenderer when a radio button or manual selector changes.
+ * Includes the current user's session_id so the server can record editor attribution.
+ *
+ * Also applies editor attribution locally (optimistic update) so the header
+ * color changes immediately without waiting for the SSE round-trip.
+ *
  * @param {string} ticketId - The ticket ID
  * @param {string} field - 'support_group_radio' | 'manual_support_group' | 'priority_radio'
  * @param {string} value - The selected value
  */
 function syncAssignmentSelection(ticketId, field, value) {
   if (_applyingSyncedAssignment) return; // Don't re-sync server-applied changes
+
+  // ── Optimistic local editor attribution ──────────────────────────────────
+  if (mySessionId && myPresenceColor && myDisplayName) {
+    if (value) {
+      // Record editor locally
+      if (!_editorState[ticketId]) _editorState[ticketId] = {};
+      _editorState[ticketId][field] = {
+        session_id: mySessionId,
+        label: myDisplayName,
+        color: myPresenceColor,
+      };
+    } else {
+      // Field cleared — remove editor for this field
+      if (_editorState[ticketId]) {
+        delete _editorState[ticketId][field];
+        if (Object.keys(_editorState[ticketId]).length === 0) {
+          delete _editorState[ticketId];
+        }
+      }
+    }
+    // Apply visual change immediately
+    TicketRenderer.applyEditorAttribution(ticketId, _editorState[ticketId] || null);
+  }
+
+  // ── POST to server for cross-client sync ─────────────────────────────────
   fetch(CONSTANTS.API.SYNC_ASSIGNMENT_SELECTION, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ticket_id: ticketId, field, value })
+    body: JSON.stringify({
+      ticket_id: ticketId,
+      field,
+      value,
+      session_id: mySessionId || ''
+    })
   }).catch(err => debugLog('[MAIN] - Error syncing assignment selection:', err));
 }
 

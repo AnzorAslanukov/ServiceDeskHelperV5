@@ -1,8 +1,6 @@
 """
-Validation ticket routes — fetch, stream, broadcast, check, and hydrate.
+Validation ticket routes — broadcast, check, and hydrate.
 
-/api/get-validation-tickets         (POST, legacy batch)
-/api/get-validation-tickets-stream  (GET, SSE per-client stream)
 /api/trigger-validation-load        (POST, shared broadcast trigger)
 /api/validation-broadcast           (GET, long-lived SSE)
 /api/check-validation-tickets       (GET, polling diff)
@@ -25,105 +23,9 @@ from app.logic.ticket_format import format_validation_ticket
 from app.state import validation_cache
 from app.state import recommendation_state
 from app.state import sync_state
+from app.state import ui_state
 
 validation_bp = Blueprint('validation', __name__)
-
-
-# ── Legacy batch endpoint ─────────────────────────────────────────────────────
-
-@validation_bp.route('/api/get-validation-tickets', methods=['POST'])
-def api_get_validation_tickets():
-    output = Output()
-    if DEBUG:
-        output.add_line("Starting api_get_validation_tickets")
-
-    try:
-        athena = Athena()
-        ticket_ids = athena.get_validation_tickets()
-        if not ticket_ids:
-            output.add_line("No validation tickets found")
-            return jsonify({'tickets': [], 'count': 0})
-
-        if DEBUG:
-            output.add_line(
-                f"Found {len(ticket_ids)} validation ticket IDs: "
-                f"{ticket_ids[:5]}{'...' if len(ticket_ids) > 5 else ''}"
-            )
-
-        validation_tickets = []
-        for ticket_id in ticket_ids:
-            try:
-                ticket_data = athena.get_ticket_data(ticket_number=ticket_id, view=True)
-                if ticket_data and 'result' in ticket_data and ticket_data['result']:
-                    ticket = ticket_data['result'][0]
-                    vt = format_validation_ticket(ticket, len(validation_tickets))
-                    validation_tickets.append(vt)
-                    if DEBUG:
-                        output.add_line(f"Added ticket {ticket_id}")
-            except Exception as e:
-                output.add_line(f"Error processing ticket {ticket_id}: {e}")
-                continue
-
-        if DEBUG:
-            output.add_line(f"Returning {len(validation_tickets)} validation tickets")
-
-        return jsonify({'tickets': validation_tickets, 'count': len(validation_tickets)})
-
-    except Exception as e:
-        output.add_line(f"Error in api_get_validation_tickets: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-# ── Per-client SSE stream (legacy) ────────────────────────────────────────────
-
-@validation_bp.route('/api/get-validation-tickets-stream', methods=['GET'])
-def api_get_validation_tickets_stream():
-    output = Output()
-    if DEBUG:
-        output.add_line("Starting api_get_validation_tickets_stream")
-
-    def generate_stream():
-        try:
-            athena = Athena()
-            ticket_ids = athena.get_validation_tickets()
-            if not ticket_ids:
-                yield f"event: count\ndata: {json.dumps({'count': 0})}\n\n"
-                yield f"event: complete\ndata: {json.dumps({'message': 'No validation tickets found'})}\n\n"
-                return
-
-            total_count = len(ticket_ids)
-            if DEBUG:
-                output.add_line(f"Streaming {total_count} validation tickets")
-
-            yield f"event: count\ndata: {json.dumps({'count': total_count})}\n\n"
-
-            for index, ticket_id in enumerate(ticket_ids):
-                try:
-                    ticket_data = athena.get_ticket_data(ticket_number=ticket_id, view=True)
-                    if ticket_data and 'result' in ticket_data and ticket_data['result']:
-                        vt = format_validation_ticket(ticket_data['result'][0], index)
-                        if DEBUG:
-                            output.add_line(f"Streaming ticket {index + 1}/{total_count}: {ticket_id}")
-                        yield f"event: ticket\ndata: {json.dumps(vt)}\n\n"
-                    else:
-                        yield f"event: error\ndata: {json.dumps({'index': index, 'ticket_id': ticket_id, 'message': 'Failed to fetch ticket data'})}\n\n"
-                except Exception as e:
-                    yield f"event: error\ndata: {json.dumps({'index': index, 'ticket_id': ticket_id, 'message': str(e)})}\n\n"
-
-            yield f"event: complete\ndata: {json.dumps({'message': 'All tickets processed', 'count': total_count})}\n\n"
-
-        except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
-
-    return current_app.response_class(
-        generate_stream(),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-        },
-    )
 
 
 # ── Shared broadcast trigger ──────────────────────────────────────────────────
@@ -144,6 +46,7 @@ def api_trigger_validation_load():
     # Transition to loading and start background fetch
     validation_cache.set_loading()
     validation_cache.broadcast('state', {'state': 'loading'}, buffer=False)
+    ui_state.set_tickets_loading()
     threading.Thread(target=_do_validation_fetch, daemon=True).start()
 
     if DEBUG:
@@ -187,9 +90,10 @@ def api_validation_broadcast():
                 # Replay sync state
                 sync_checkboxes = sync_state.get_checkbox_state()
                 sync_assignments = sync_state.get_assignment_selections()
+                sync_editors = sync_state.get_assignment_editors()
                 sync_next_poll = sync_state.get_next_poll()
-                if sync_checkboxes:
-                    yield f"event: sync-state-burst\ndata: {json.dumps({'checkboxes': sync_checkboxes, 'assignments': sync_assignments, 'next_poll_at': sync_next_poll})}\n\n"
+                if sync_checkboxes or sync_editors:
+                    yield f"event: sync-state-burst\ndata: {json.dumps({'checkboxes': sync_checkboxes, 'assignments': sync_assignments, 'editors': sync_editors, 'next_poll_at': sync_next_poll})}\n\n"
 
             elif current_state == 'loading':
                 yield f"event: state\ndata: {json.dumps({'state': 'loading'})}\n\n"
@@ -197,6 +101,10 @@ def api_validation_broadcast():
                     yield f"event: {msg['event']}\ndata: {json.dumps(msg['data'])}\n\n"
             else:
                 yield f"event: state\ndata: {json.dumps({'state': 'idle'})}\n\n"
+
+            # Always replay centralised UI state for the three workflow buttons
+            # (sent after the if/elif/else so it applies regardless of cache state)
+            yield f"event: ui-state-update\ndata: {json.dumps(ui_state.get_state())}\n\n"
 
             # ── Relay broadcast events ────────────────────────────────────
             while True:
@@ -336,6 +244,7 @@ def _do_validation_fetch() -> None:
             validation_cache.set_idle()
             validation_cache.broadcast('count', {'count': 0})
             validation_cache.broadcast('complete', {'message': 'No validation tickets found', 'count': 0})
+            ui_state.set_idle()
             if DEBUG:
                 output.add_line('_do_validation_fetch: no tickets found')
             return
@@ -392,6 +301,7 @@ def _do_validation_fetch() -> None:
 
         validation_cache.set_loaded(fetched)
         validation_cache.broadcast('complete', {'count': len(fetched)})
+        ui_state.set_tickets_loaded(total_tickets=len(fetched))
 
         if DEBUG:
             output.add_line(f'_do_validation_fetch: complete, {len(fetched)} tickets cached')
@@ -400,3 +310,4 @@ def _do_validation_fetch() -> None:
         output.add_line(f'_do_validation_fetch: fatal error: {e}')
         validation_cache.set_idle()
         validation_cache.broadcast('error', {'message': str(e)})
+        ui_state.set_idle()

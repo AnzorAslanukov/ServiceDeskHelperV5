@@ -12,11 +12,10 @@ from output import Output
 from parse_json import ParseJson
 from field_mapping import FieldMapper
 from embedding_model import EmbeddingModel
+from config import DEBUG
+from config import TEST_RUN_DATABRICKS as TEST_RUN
 
 load_dotenv()
-
-DEBUG = True  # Global debug setting for print statements
-TEST_RUN = True  # Set to True to enable the test section when running the file 
 
 class Databricks:
 

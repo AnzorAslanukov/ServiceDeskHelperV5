@@ -6,11 +6,9 @@ import requests
 import difflib
 import json
 from output import Output
+from config import DEBUG as DEBUG_LOGGING
 
 # Athena import moved inside get_guid method to avoid circular import
-
-# Global logging configuration
-DEBUG_LOGGING = True  # Set to False to disable logging
 
 # Global field mapping dictionaries to standardize field names across data sources
 # Athena API uses camelCase, Databricks uses PascalCase, we standardize to snake_case

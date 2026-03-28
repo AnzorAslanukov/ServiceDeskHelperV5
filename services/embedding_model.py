@@ -11,11 +11,10 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from output import Output
+from config import DEBUG
+from config import TEST_RUN_EMBEDDING_MODEL as TEST_RUN
 
 load_dotenv()
-
-DEBUG = True  # Global debug setting for print statements
-TEST_RUN = False  # Set to True to enable test section when running the file
 
 class EmbeddingModel:
     """

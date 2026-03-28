@@ -719,6 +719,13 @@ class TicketRenderer {
       const accordionHeader = document.querySelector(`[data-ticket-index="${ticketIndex}"] > .accordion-header`);
       if (accordionHeader) accordionHeader.classList.add('manual-sg-header');
 
+      // Sync manual SG selection to other clients
+      const ticketItem = document.querySelector(`[data-ticket-index="${ticketIndex}"]`);
+      const ticketId = ticketItem ? ticketItem.dataset.ticketId : null;
+      if (ticketId && typeof syncAssignmentSelection === 'function') {
+        syncAssignmentSelection(ticketId, 'manual_support_group', selectedName);
+      }
+
       debugLog(`[RENDERER] - Manual support group selected for ticket ${ticketIndex}: ${selectedName}`);
     });
 
@@ -738,6 +745,13 @@ class TicketRenderer {
       // Remove warm color highlight from the accordion header
       const accordionHeader = document.querySelector(`[data-ticket-index="${ticketIndex}"] > .accordion-header`);
       if (accordionHeader) accordionHeader.classList.remove('manual-sg-header');
+
+      // Sync manual SG clear to other clients
+      const ticketItem = document.querySelector(`[data-ticket-index="${ticketIndex}"]`);
+      const ticketId = ticketItem ? ticketItem.dataset.ticketId : null;
+      if (ticketId && typeof syncAssignmentSelection === 'function') {
+        syncAssignmentSelection(ticketId, 'manual_support_group', '');
+      }
 
       debugLog(`[RENDERER] - Manual support group cleared for ticket ${ticketIndex}`);
     });
@@ -905,6 +919,36 @@ class TicketRenderer {
                                  data.recommended_support_group?.toLowerCase() === 'facilities';
       if (!isFacilitiesTicket) {
         this._initManualSgSelector(ticketIndex);
+      }
+    }
+
+    // ── Attach change listeners for radio buttons to sync with other clients ──
+    if (!data.error) {
+      const isFacilitiesTicket = data.recommended_support_group === 'facilities' || 
+                                 data.recommended_support_group?.toLowerCase() === 'facilities';
+      if (!isFacilitiesTicket) {
+        const ticketItem = document.querySelector(`[data-ticket-index="${ticketIndex}"]`);
+        const ticketId = ticketItem ? ticketItem.dataset.ticketId : null;
+
+        // Support group radio change listener
+        const sgRadios = container.querySelectorAll(`input[name="sg-selector-batch-${ticketIndex}"]`);
+        sgRadios.forEach(radio => {
+          radio.addEventListener('change', () => {
+            if (ticketId && typeof syncAssignmentSelection === 'function') {
+              syncAssignmentSelection(ticketId, 'support_group_radio', radio.value);
+            }
+          });
+        });
+
+        // Priority radio change listener
+        const priorityRadios = container.querySelectorAll(`input[name="priority-selector-batch-${ticketIndex}"]`);
+        priorityRadios.forEach(radio => {
+          radio.addEventListener('change', () => {
+            if (ticketId && typeof syncAssignmentSelection === 'function') {
+              syncAssignmentSelection(ticketId, 'priority_radio', radio.value);
+            }
+          });
+        });
       }
     }
 
@@ -1424,6 +1468,166 @@ class TicketRenderer {
     }
     
     debugLog('[RENDERER] - Ticket checkboxes are now hidden and disabled');
+  }
+
+  // ─── Editor attribution helpers ─────────────────────────────────────────
+
+  /**
+   * Convert a hex color to a lighter/gentler RGBA string suitable for
+   * accordion header backgrounds.
+   * @param {string} hex - Hex color string (e.g. '#0d6efd')
+   * @param {number} [opacity=0.15] - Opacity for light mode
+   * @returns {string} RGBA color string
+   * @private
+   */
+  static _hexToLightRgba(hex, opacity = 0.15) {
+    const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    const effectiveOpacity = isDark ? opacity + 0.08 : opacity;
+    // Parse hex
+    let r = 0, g = 0, b = 0;
+    const h = hex.replace('#', '');
+    if (h.length === 3) {
+      r = parseInt(h[0] + h[0], 16);
+      g = parseInt(h[1] + h[1], 16);
+      b = parseInt(h[2] + h[2], 16);
+    } else if (h.length === 6) {
+      r = parseInt(h.substring(0, 2), 16);
+      g = parseInt(h.substring(2, 4), 16);
+      b = parseInt(h.substring(4, 6), 16);
+    }
+    return `rgba(${r}, ${g}, ${b}, ${effectiveOpacity})`;
+  }
+
+  /**
+   * Apply editor attribution coloring to a ticket's accordion header.
+   *
+   * This sets CSS custom properties on the accordion-item element and toggles
+   * the appropriate CSS class so the header background reflects who edited it.
+   *
+   * @param {string} ticketId - The ticket ID
+   * @param {Object} editors - Map of field → {session_id, label, color}
+   *   e.g. { support_group_radio: {…}, manual_support_group: {…}, priority_radio: {…} }
+   */
+  static applyEditorAttribution(ticketId, editors) {
+    const item = document.querySelector(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} > .accordion-item[data-ticket-id="${ticketId}"]`
+    );
+    if (!item) return;
+
+    const header = item.querySelector('.accordion-header');
+    if (!header) return;
+
+    // Remove previous editor classes
+    header.classList.remove('editor-changed-header', 'editor-manual-header');
+    item.style.removeProperty('--editor-color');
+    item.style.removeProperty('--editor-color-light');
+
+    if (!editors || Object.keys(editors).length === 0) {
+      // No editors — remove attribution label too
+      this._removeEditorAttributionLabel(item);
+      return;
+    }
+
+    // Determine the dominant editor color.
+    // Priority: manual_support_group > support_group_radio > priority_radio
+    const hasManual = editors.manual_support_group && editors.manual_support_group.color;
+    const hasSgRadio = editors.support_group_radio && editors.support_group_radio.color;
+    const hasPriority = editors.priority_radio && editors.priority_radio.color;
+
+    let dominantColor = null;
+    if (hasManual) {
+      dominantColor = editors.manual_support_group.color;
+    } else if (hasSgRadio) {
+      dominantColor = editors.support_group_radio.color;
+    } else if (hasPriority) {
+      dominantColor = editors.priority_radio.color;
+    }
+
+    if (dominantColor) {
+      const lightColor = this._hexToLightRgba(dominantColor, 0.15);
+      item.style.setProperty('--editor-color', dominantColor);
+      item.style.setProperty('--editor-color-light', lightColor);
+
+      if (hasManual) {
+        // Manual SG selected → amber left + user color right
+        header.classList.remove('manual-sg-header'); // Remove old-style amber
+        header.classList.add('editor-manual-header');
+      } else {
+        // Radio change only → user color across entire header
+        header.classList.remove('manual-sg-header');
+        header.classList.add('editor-changed-header');
+      }
+    }
+
+    // Render the attribution label inside the expanded body
+    this._renderEditorAttributionLabel(item, editors);
+  }
+
+  /**
+   * Remove editor attribution from a ticket header (reset to default).
+   * @param {string} ticketId - The ticket ID
+   */
+  static removeEditorAttribution(ticketId) {
+    this.applyEditorAttribution(ticketId, null);
+  }
+
+  /**
+   * Render the editor attribution label inside the expanded accordion body.
+   * Shows who changed which field.
+   * @param {HTMLElement} accordionItem - The accordion-item element
+   * @param {Object} editors - Map of field → {session_id, label, color}
+   * @private
+   */
+  static _renderEditorAttributionLabel(accordionItem, editors) {
+    const body = accordionItem.querySelector('.accordion-body');
+    if (!body) return;
+
+    // Remove existing label
+    const existing = body.querySelector('.editor-attribution-label');
+    if (existing) existing.remove();
+
+    if (!editors || Object.keys(editors).length === 0) return;
+
+    const fieldLabels = {
+      support_group_radio: 'support group',
+      manual_support_group: 'manual support group',
+      priority_radio: 'priority level',
+    };
+
+    const items = [];
+    for (const [field, info] of Object.entries(editors)) {
+      if (!info || !info.label) continue;
+      const fieldName = fieldLabels[field] || field;
+      items.push(`
+        <span class="editor-attr-item">
+          <span class="editor-color-dot" style="background-color: ${info.color};"></span>
+          <span class="editor-name">${info.label}</span>
+          <span class="editor-action">changed ${fieldName}</span>
+        </span>
+      `);
+    }
+
+    if (items.length === 0) return;
+
+    const labelHtml = `
+      <div class="editor-attribution-label">
+        <i class="bi bi-pencil-square"></i>
+        ${items.join('<span class="editor-separator">·</span>')}
+      </div>
+    `;
+
+    // Insert at the top of the accordion body, before other content
+    body.insertAdjacentHTML('afterbegin', labelHtml);
+  }
+
+  /**
+   * Remove the editor attribution label from an accordion item.
+   * @param {HTMLElement} accordionItem - The accordion-item element
+   * @private
+   */
+  static _removeEditorAttributionLabel(accordionItem) {
+    const label = accordionItem.querySelector('.editor-attribution-label');
+    if (label) label.remove();
   }
 
   // ─── Real-time queue monitoring helpers ──────────────────────────────────

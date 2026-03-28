@@ -10,6 +10,7 @@ import threading
 from app.config import RECOMMENDATION_MAX_WORKERS
 from app.logic.ticket_advice import get_ticket_advice
 from app.state import validation_cache
+from app.state import ui_state as _ui_state
 from services.output import Output
 from app.config import DEBUG
 
@@ -165,6 +166,13 @@ def process_single(ticket_id: str) -> None:
             'completed': completed,
             'total': total,
         }, buffer=False)
+
+        # Update centralised UI state progress tracker
+        _ui_state.update_recommendation_progress(completed, total, ticket_id)
+
+        # If all recommendations are done, transition the workflow buttons
+        if completed > 0 and completed >= total:
+            _ui_state.set_recommendations_complete(total)
 
 
 # ── Batch processing ─────────────────────────────────────────────────────────

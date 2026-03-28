@@ -602,6 +602,159 @@ body {
 
 /* ── End manual support group header highlight ───────────────────────────── */
 
+/* ── Editor attribution header coloring ──────────────────────────────────── */
+
+/*
+ * When a user changes a support group radio, priority radio, or manual SG,
+ * the accordion header shows who made the change via a colored background.
+ *
+ * Two CSS custom properties are set via inline style on the accordion-item:
+ *   --editor-color       : the user's presence color (hex)
+ *   --editor-color-light : a lighter/gentler version for the background
+ *
+ * Classes:
+ *   .editor-changed-header  — user color from ticket number onward (no amber)
+ *   .editor-manual-header   — amber left + user color right (split gradient)
+ */
+
+/* User-color-only header (support group radio or priority change) */
+.editor-changed-header .accordion-button {
+  background: linear-gradient(
+    to right,
+    var(--editor-color-light) 0%,
+    var(--editor-color-light) 100%
+  ) !important;
+  transition: background 0.3s ease;
+}
+
+.editor-changed-header .accordion-button:not(.collapsed) {
+  background: linear-gradient(
+    to right,
+    var(--editor-color-light) 0%,
+    var(--editor-color-light) 100%
+  ) !important;
+  filter: brightness(0.97);
+}
+
+/* The checkbox + clipboard area also gets the user color */
+.editor-changed-header {
+  background-color: var(--editor-color-light) !important;
+  transition: background-color 0.3s ease;
+}
+
+/* Split header: amber on the left (checkbox + clipboard), user color on the right */
+.editor-manual-header {
+  background: linear-gradient(
+    to right,
+    #fdf6f0 0%,
+    #fdf6f0 80px,
+    var(--editor-color-light, #f0f0f0) 80px,
+    var(--editor-color-light, #f0f0f0) 100%
+  ) !important;
+  border-left: 3px solid #e8a87c;
+  transition: background 0.3s ease, border-left 0.3s ease;
+}
+
+.editor-manual-header .accordion-button {
+  background: var(--editor-color-light) !important;
+  transition: background 0.3s ease;
+}
+
+.editor-manual-header .accordion-button:not(.collapsed) {
+  background: var(--editor-color-light) !important;
+  filter: brightness(0.97);
+}
+
+/* Dark mode variants */
+[data-bs-theme="dark"] .editor-changed-header {
+  background-color: var(--editor-color-light) !important;
+}
+
+[data-bs-theme="dark"] .editor-changed-header .accordion-button {
+  background: var(--editor-color-light) !important;
+}
+
+[data-bs-theme="dark"] .editor-changed-header .accordion-button:not(.collapsed) {
+  background: var(--editor-color-light) !important;
+  filter: brightness(1.1);
+}
+
+[data-bs-theme="dark"] .editor-manual-header {
+  background: linear-gradient(
+    to right,
+    #3a2f28 0%,
+    #3a2f28 80px,
+    var(--editor-color-light, #2a2a2a) 80px,
+    var(--editor-color-light, #2a2a2a) 100%
+  ) !important;
+  border-left-color: #c4956a;
+}
+
+[data-bs-theme="dark"] .editor-manual-header .accordion-button {
+  background: var(--editor-color-light) !important;
+}
+
+[data-bs-theme="dark"] .editor-manual-header .accordion-button:not(.collapsed) {
+  background: var(--editor-color-light) !important;
+  filter: brightness(1.1);
+}
+
+/* Editor attribution label inside expanded accordion body */
+.editor-attribution-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  border-radius: 0.375rem;
+  background-color: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-color);
+  font-size: 0.8rem;
+  color: var(--text-color);
+}
+
+.editor-attribution-label .editor-attr-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.editor-attribution-label .editor-color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.editor-attribution-label .editor-name {
+  font-weight: 600;
+}
+
+.editor-attribution-label .editor-action {
+  color: #6c757d;
+}
+
+.editor-attribution-label .editor-separator {
+  color: #dee2e6;
+  margin: 0 0.25rem;
+}
+
+[data-bs-theme="dark"] .editor-attribution-label {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+[data-bs-theme="dark"] .editor-attribution-label .editor-action {
+  color: #adb5bd;
+}
+
+[data-bs-theme="dark"] .editor-attribution-label .editor-separator {
+  color: #495057;
+}
+
+/* ── End editor attribution header coloring ──────────────────────────────── */
+
 /* ── Manual SG legend swatch (in priority legend bar) ────────────────────── */
 
 .manual-sg-legend-swatch {

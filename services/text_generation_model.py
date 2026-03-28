@@ -9,11 +9,10 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(__file__))
 
 from output import Output
+from config import DEBUG
+from config import TEST_RUN_TEXT_GENERATION_MODEL as TEST_RUN
 
 load_dotenv()
-
-DEBUG = True  # Global debug setting for print statements
-TEST_RUN = True  # Set to True to enable the test section when running the file
 
 class TextGenerationModel:
     def __init__(self):

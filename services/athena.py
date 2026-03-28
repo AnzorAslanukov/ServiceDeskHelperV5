@@ -11,12 +11,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 from output import Output
 from parse_json import ParseJson
 from field_mapping import FieldMapper
+from config import DEBUG, PROCESS_INDICATORS
+from config import TEST_RUN_ATHENA as TEST_RUN
 
 load_dotenv()
-
-DEBUG = True  # Global debug setting for print statements 
-TEST_RUN = True  # Set to True to enable the test section when running the file 
-PROCESS_INDICATORS = False  # Enable/disable process loading indicator print statements 
 
 class Athena:
 

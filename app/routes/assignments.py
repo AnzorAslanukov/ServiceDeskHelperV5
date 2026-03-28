@@ -12,6 +12,7 @@ from services.output import Output
 from app.config import DEBUG
 from app.state import recommendation_state
 from app.state import sync_state
+from app.state import ui_state
 
 assignments_bp = Blueprint('assignments', __name__)
 
@@ -47,6 +48,7 @@ def api_implement_assignments():
         ticket_ids = [a.get('ticket_id', '') for a in assignments]
         sync_state.set_implement_in_progress(True)
         sync_state.broadcast_implement_started(ticket_ids)
+        ui_state.set_implement_in_progress(ticket_ids)
 
         athena = Athena()
         results = []
@@ -154,6 +156,7 @@ def api_implement_assignments():
         # ── Broadcast implement-complete ──────────────────────────────────
         sync_state.set_implement_in_progress(False)
         sync_state.broadcast_implement_complete(results, errors, assigned_ids)
+        ui_state.set_implement_complete()
 
         return jsonify({
             'results': results,
@@ -167,4 +170,5 @@ def api_implement_assignments():
             output.add_line(error_msg)
         sync_state.set_implement_in_progress(False)
         sync_state.broadcast_implement_complete([], [error_msg], [])
+        ui_state.set_implement_complete()
         return jsonify({'error': error_msg}), 500
