@@ -6,14 +6,18 @@ Cross-client state synchronisation routes.
 /api/sync-poll-timer            (POST)
 /api/sync-implement             (POST)
 /api/sync-state                 (GET)
+/api/toggle-validation          (POST)
+/api/ui-state                   (GET)
 """
 
 from flask import Blueprint, request, jsonify
 
+from app.config import CONSENSUS_TICKET_THRESHOLD
 from app.state import validation_cache
 from app.state import sync_state
 from app.state import presence
 from app.state import ui_state
+from app.state import consensus_state
 
 sync_bp = Blueprint('sync', __name__)
 
@@ -22,6 +26,10 @@ sync_bp = Blueprint('sync', __name__)
 def api_sync_checkbox():
     """
     Synchronise checkbox state across all connected clients.
+
+    Also recomputes the implement button state via ui_state (which delegates
+    to button_rules) and checks whether consensus should be activated,
+    deactivated, or revoked.
 
     Request body:
       ``{"ticket_id": "IR12345", "checked": true}``
@@ -32,10 +40,11 @@ def api_sync_checkbox():
 
     if 'select_all' in data:
         checked = bool(data.get('checked', False))
-        # Get all ticket IDs from validation cache for completeness
         cached_ids = [t['id'] for t in validation_cache.get_tickets()]
         sync_state.set_all_checkboxes(checked, cached_ids)
         sync_state.broadcast_checkbox(None, checked, is_select_all=True)
+        # Recompute button state via rules engine
+        _recompute_from_checkboxes()
         return jsonify({'status': 'ok'})
 
     ticket_id = data.get('ticket_id', '').strip()
@@ -45,6 +54,16 @@ def api_sync_checkbox():
     checked = bool(data.get('checked', False))
     sync_state.set_checkbox(ticket_id, checked)
     sync_state.broadcast_checkbox(ticket_id, checked)
+
+    # Check if this new checkbox check should revoke full assignment
+    if checked and consensus_state.is_full_assignment_active():
+        if consensus_state.check_new_checkbox(ticket_id):
+            # New checkbox not in original consensus set → revoke
+            consensus_state.revoke_full_assignment_new_checkbox()
+            consensus_state.broadcast_state()
+
+    # Recompute button state via rules engine
+    _recompute_from_checkboxes()
     return jsonify({'status': 'ok'})
 
 
@@ -56,11 +75,6 @@ def api_sync_assignment_selection():
     Request body:
       ``{"ticket_id": "IR12345", "field": "support_group_radio", "value": "...",
          "session_id": "<uuid>"}``
-
-    When *session_id* is provided the server looks up the user's display name
-    and presence color and stores editor attribution alongside the selection.
-    The attribution is included in the broadcast so all clients can show who
-    made the change.
     """
     data = request.get_json(silent=True) or {}
     ticket_id = data.get('ticket_id', '').strip()
@@ -80,13 +94,11 @@ def api_sync_assignment_selection():
     # ── Editor attribution ────────────────────────────────────────────────
     editor_info = None
     if session_id:
-        # Read-only lookup — does not refresh the session timer
         user = presence.get_session_info(session_id)
         if user:
             label = user['label']
             color = user['color']
             if value:
-                # Record the editor for this field
                 sync_state.set_assignment_editor(
                     ticket_id, field, session_id, label, color)
                 editor_info = {
@@ -95,7 +107,6 @@ def api_sync_assignment_selection():
                     'color': color,
                 }
             else:
-                # Empty value means the field was cleared (e.g. manual SG removed)
                 sync_state.clear_assignment_editor(ticket_id, field)
 
     sync_state.broadcast_assignment(ticket_id, field, value, editor_info)
@@ -133,6 +144,7 @@ def api_sync_implement():
     if action == 'started':
         sync_state.set_implement_in_progress(True)
         sync_state.broadcast_implement_started(data.get('ticket_ids', []))
+        ui_state.set_implement_in_progress(True)
         return jsonify({'status': 'ok'})
 
     elif action == 'complete':
@@ -141,9 +153,30 @@ def api_sync_implement():
         validation_cache.broadcast('implement-complete', {
             'results': results,
         }, buffer=False)
+        ui_state.set_implement_in_progress(False)
         return jsonify({'status': 'ok'})
 
     return jsonify({'error': f'Invalid action: {action}'}), 400
+
+
+@sync_bp.route('/api/toggle-validation', methods=['POST'])
+def api_toggle_validation():
+    """
+    Toggle the 'Get validation tickets' button on or off.
+
+    Request body: ``{"active": true/false}`` (optional — defaults to toggling)
+    """
+    data = request.get_json(silent=True) or {}
+
+    if 'active' in data:
+        active = bool(data['active'])
+    else:
+        active = not sync_state.is_validation_toggle_on()
+
+    sync_state.set_validation_toggle(active)
+    ui_state.set_validation_toggle(active)
+
+    return jsonify({'status': 'ok', 'active': active})
 
 
 @sync_bp.route('/api/sync-state', methods=['GET'])
@@ -159,6 +192,7 @@ def api_sync_state():
         'editors': sync_state.get_assignment_editors(),
         'next_poll_at': sync_state.get_next_poll(),
         'implement_in_progress': sync_state.is_implement_in_progress(),
+        'validation_toggle_on': sync_state.is_validation_toggle_on(),
     })
 
 
@@ -167,5 +201,41 @@ def api_ui_state():
     """
     Return the current centralised UI state for the three workflow buttons.
     Used by late-joining clients or as a fallback after SSE reconnect.
+
+    Accepts an optional ``session_id`` query parameter to personalise
+    consensus tooltip text.
     """
-    return jsonify(ui_state.get_state())
+    session_id = request.args.get('session_id', '').strip() or None
+    return jsonify(ui_state.get_state(session_id=session_id))
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _recompute_from_checkboxes() -> None:
+    """Read the authoritative checkbox counts and update ui_state."""
+    cb = sync_state.get_checkbox_state()
+    total = len(cb)
+    checked = sum(1 for v in cb.values() if v)
+
+    # Check consensus activation / deactivation
+    user_count = presence.get_active_count()
+    if user_count > 1 and checked > CONSENSUS_TICKET_THRESHOLD:
+        if not consensus_state.is_active():
+            consensus_state.activate()
+            consensus_state.broadcast_state()
+    elif consensus_state.is_active() and checked <= CONSENSUS_TICKET_THRESHOLD:
+        consensus_state.deactivate()
+        consensus_state.broadcast_state()
+
+    # Update consensus context in ui_state
+    cs = consensus_state.get_state()
+    ui_state.set_consensus_state(
+        active=cs['active'],
+        agreed=len(cs['agreed']),
+        required=cs['required'],
+        unlocked=cs.get('unlocked', False),
+        full_assignment_active=cs.get('full_assignment_active', False),
+    )
+
+    # Update checkbox counts (this also recomputes and broadcasts)
+    ui_state.set_checkbox_counts(checked, total)

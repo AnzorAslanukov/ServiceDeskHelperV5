@@ -16,6 +16,7 @@ _assignment_selections: dict = {}    # ticket_id -> {field: value, ...}
 _assignment_editors: dict = {}       # ticket_id -> {field: {session_id, label, color}}
 _next_poll_epoch_ms: int = 0
 _implement_in_progress: bool = False
+_validation_toggle_on: bool = False  # "Get validation tickets" toggle state
 
 
 # ── Checkbox sync ─────────────────────────────────────────────────────────────
@@ -100,6 +101,19 @@ def set_next_poll(epoch_ms: int) -> None:
 def get_next_poll() -> int:
     with _lock:
         return _next_poll_epoch_ms
+
+
+# ── Validation toggle sync ────────────────────────────────────────────────────
+
+def set_validation_toggle(on: bool) -> None:
+    global _validation_toggle_on
+    with _lock:
+        _validation_toggle_on = on
+
+
+def is_validation_toggle_on() -> bool:
+    with _lock:
+        return _validation_toggle_on
 
 
 # ── Implement-in-progress flag ───────────────────────────────────────────────

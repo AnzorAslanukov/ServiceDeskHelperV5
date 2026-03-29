@@ -41,7 +41,8 @@ def api_toggle_recommendations():
 
     if active:
         recommendation_state.clear_errors()
-        ui_state.set_recommendations_loading()
+        # Update ui_state via button_rules
+        ui_state.set_recommendations_toggle(True)
 
         loaded_tickets = validation_cache.get_tickets()
         ticket_ids = [t['id'] for t in loaded_tickets]
@@ -62,7 +63,8 @@ def api_toggle_recommendations():
             )
     else:
         recommendation_state.signal_stop()
-        ui_state.set_recommendations_toggled_off()
+        # Update ui_state via button_rules
+        ui_state.set_recommendations_toggle(False)
         if DEBUG:
             output.add_line('toggle-recommendations: OFF — stop event set')
 

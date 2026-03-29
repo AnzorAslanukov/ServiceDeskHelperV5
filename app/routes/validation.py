@@ -46,7 +46,7 @@ def api_trigger_validation_load():
     # Transition to loading and start background fetch
     validation_cache.set_loading()
     validation_cache.broadcast('state', {'state': 'loading'}, buffer=False)
-    ui_state.set_tickets_loading()
+    # ui_state is recomputed via button_rules when tickets_in_view changes
     threading.Thread(target=_do_validation_fetch, daemon=True).start()
 
     if DEBUG:
@@ -104,7 +104,8 @@ def api_validation_broadcast():
 
             # Always replay centralised UI state for the three workflow buttons
             # (sent after the if/elif/else so it applies regardless of cache state)
-            yield f"event: ui-state-update\ndata: {json.dumps(ui_state.get_state())}\n\n"
+            # Use session_id for per-session consensus tooltip personalisation
+            yield f"event: ui-state-update\ndata: {json.dumps(ui_state.get_state(session_id=session_id))}\n\n"
 
             # ── Relay broadcast events ────────────────────────────────────
             while True:
@@ -244,7 +245,7 @@ def _do_validation_fetch() -> None:
             validation_cache.set_idle()
             validation_cache.broadcast('count', {'count': 0})
             validation_cache.broadcast('complete', {'message': 'No validation tickets found', 'count': 0})
-            ui_state.set_idle()
+            ui_state.set_tickets_in_view(0)
             if DEBUG:
                 output.add_line('_do_validation_fetch: no tickets found')
             return
@@ -301,7 +302,8 @@ def _do_validation_fetch() -> None:
 
         validation_cache.set_loaded(fetched)
         validation_cache.broadcast('complete', {'count': len(fetched)})
-        ui_state.set_tickets_loaded(total_tickets=len(fetched))
+        # Update tickets_in_view so button_rules recomputes all buttons
+        ui_state.set_tickets_in_view(len(fetched))
 
         if DEBUG:
             output.add_line(f'_do_validation_fetch: complete, {len(fetched)} tickets cached')
@@ -310,4 +312,4 @@ def _do_validation_fetch() -> None:
         output.add_line(f'_do_validation_fetch: fatal error: {e}')
         validation_cache.set_idle()
         validation_cache.broadcast('error', {'message': str(e)})
-        ui_state.set_idle()
+        ui_state.set_tickets_in_view(0)

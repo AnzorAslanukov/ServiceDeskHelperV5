@@ -9,6 +9,7 @@ from flask import Blueprint, request, jsonify
 
 from app.state import presence as presence_state
 from app.state import consensus_state
+from app.state import ui_state
 
 presence_bp = Blueprint('presence', __name__)
 
@@ -34,6 +35,9 @@ def api_presence_heartbeat():
     if stale_ids:
         consensus_state.check_after_presence_change()
 
+    # Keep ui_state user_count in sync for button_rules
+    ui_state.set_user_count(len(sessions))
+
     return jsonify({'sessions': sessions})
 
 
@@ -50,5 +54,7 @@ def api_presence_leave():
     if session_id:
         presence_state.leave(session_id)
         consensus_state.check_after_presence_change()
+        # Keep ui_state user_count in sync for button_rules
+        ui_state.set_user_count(presence_state.get_active_count())
 
     return jsonify({'status': 'ok'})

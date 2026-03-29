@@ -13,6 +13,7 @@ from app.config import DEBUG
 from app.state import recommendation_state
 from app.state import sync_state
 from app.state import ui_state
+from app.state import consensus_state
 
 assignments_bp = Blueprint('assignments', __name__)
 
@@ -48,7 +49,7 @@ def api_implement_assignments():
         ticket_ids = [a.get('ticket_id', '') for a in assignments]
         sync_state.set_implement_in_progress(True)
         sync_state.broadcast_implement_started(ticket_ids)
-        ui_state.set_implement_in_progress(ticket_ids)
+        ui_state.set_implement_in_progress(True)
 
         athena = Athena()
         results = []
@@ -156,7 +157,26 @@ def api_implement_assignments():
         # ── Broadcast implement-complete ──────────────────────────────────
         sync_state.set_implement_in_progress(False)
         sync_state.broadcast_implement_complete(results, errors, assigned_ids)
-        ui_state.set_implement_complete()
+
+        # Reset consensus state after successful assignment
+        consensus_state.reset_after_implement()
+        consensus_state.broadcast_state()
+
+        # Update ui_state: implement done, recompute buttons
+        ui_state.set_implement_in_progress(False)
+
+        # Update tickets_in_view to reflect removed tickets
+        remaining = ui_state.get_context().get('tickets_in_view', 0) - len(assigned_ids)
+        if remaining < 0:
+            remaining = 0
+        ui_state.set_tickets_in_view(remaining)
+
+        # Recalculate checked_count from remaining checkbox state
+        # (purged tickets were removed from sync_state above)
+        cb = sync_state.get_checkbox_state()
+        remaining_checked = sum(1 for v in cb.values() if v)
+        remaining_total = len(cb)
+        ui_state.set_checkbox_counts(remaining_checked, remaining_total)
 
         return jsonify({
             'results': results,
@@ -170,5 +190,5 @@ def api_implement_assignments():
             output.add_line(error_msg)
         sync_state.set_implement_in_progress(False)
         sync_state.broadcast_implement_complete([], [error_msg], [])
-        ui_state.set_implement_complete()
+        ui_state.set_implement_in_progress(False)
         return jsonify({'error': error_msg}), 500

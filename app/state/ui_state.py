@@ -1,316 +1,284 @@
 """
 Centralised UI state — single source of truth for the three workflow buttons.
 
-Stores the visual properties (label, disabled, style, tooltip) of:
-  1. Get validation tickets
-  2. Get ticket recommendations
-  3. Implement ticket assignment
+Every state mutation calls :func:`button_rules.compute` to obtain the
+authoritative button configuration, stores the result, and broadcasts a
+``ui-state-update`` SSE event so all connected clients render identical
+button states at all times.
 
-Every state mutation broadcasts a ``ui-state-update`` SSE event so all
-connected clients render identical button states at all times.
+**No other module** is permitted to compute button properties.  The only
+way to change what a button looks like is to mutate the context variables
+in this module and call :func:`recompute`.
 """
 
 import threading
 import copy
 
+from app.state import button_rules
 from app.state import validation_cache as _vc
 
 _lock = threading.Lock()
 
-# ── Default state ─────────────────────────────────────────────────────────────
+# ── Mutable context variables ─────────────────────────────────────────────────
+# These are the *inputs* to button_rules.compute().  Every public function in
+# this module updates one or more of these, then calls _recompute_and_broadcast().
 
-def _default_state() -> dict:
-    return {
-        'workflow_phase': 'idle',
+_ctx = {
+    'validation_toggle_on': False,
+    'tickets_in_view': 0,
+    'recommendations_toggle_on': False,
+    'checked_count': 0,
+    'total_tickets': 0,
+    'user_count': 1,
+    'consensus_active': False,
+    'consensus_agreed': 0,
+    'consensus_required': 0,
+    'consensus_unlocked': False,
+    'full_assignment_active': False,
+    'implement_in_progress': False,
+    'user_has_agreed': False,       # placeholder; per-session override at read time
+    'recommendation_progress': {
+        'visible': False,
+        'current': 0,
+        'total': 0,
+        'current_ticket_id': None,
+        'complete_message': None,
+    },
+}
 
-        'buttons': {
-            'get_validation_tickets': {
-                'disabled': False,
-                'label': 'Get validation tickets',
-                'style': 'primary',       # primary | loading | locked
-            },
-            'get_recommendations': {
-                'disabled': True,
-                'label': 'Get ticket recommendations',
-                'style': 'disabled',      # disabled | toggle-off | toggle-on | loading
-            },
-            'implement_assignment': {
-                'disabled': True,
-                'label': 'Implement ticket assignment',
-                'style': 'secondary',     # secondary | success | consensus | loading
-            },
-        },
-
-        'recommendation_toggle_active': False,
-
-        'recommendation_progress': {
-            'visible': False,
-            'current': 0,
-            'total': 0,
-            'current_ticket_id': None,
-            'complete_message': None,
-        },
-    }
+# The last computed snapshot (output of button_rules.compute).
+_snapshot: dict = {}
 
 
-_state: dict = _default_state()
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+def _initial_snapshot() -> dict:
+    """Compute the initial snapshot from default context."""
+    return button_rules.compute(dict(_ctx))
+
+_snapshot = _initial_snapshot()
 
 
 # ── Read ──────────────────────────────────────────────────────────────────────
 
-def get_state() -> dict:
-    """Return a deep copy of the current UI state."""
-    with _lock:
-        return copy.deepcopy(_state)
+def get_state(session_id: str | None = None) -> dict:
+    """Return a deep copy of the current UI state snapshot.
 
-
-# ── Broadcast helper ──────────────────────────────────────────────────────────
-
-def _broadcast() -> None:
-    """Push the current state snapshot to every connected SSE client."""
-    snapshot = get_state()
-    _vc.broadcast('ui-state-update', snapshot, buffer=False)
-
-
-# ── Workflow transitions ──────────────────────────────────────────────────────
-
-def set_idle() -> dict:
-    """Reset to the initial idle state."""
-    with _lock:
-        _state.update(_default_state())
-    _broadcast()
-    return get_state()
-
-
-def set_tickets_loading() -> dict:
-    """Transition: user clicked *Get validation tickets*."""
-    with _lock:
-        _state['workflow_phase'] = 'tickets-loading'
-
-        btn = _state['buttons']['get_validation_tickets']
-        btn['disabled'] = True
-        btn['label'] = 'Loading...'
-        btn['style'] = 'loading'
-
-        rec = _state['buttons']['get_recommendations']
-        rec['disabled'] = True
-        rec['label'] = 'Get ticket recommendations'
-        rec['style'] = 'disabled'
-
-        imp = _state['buttons']['implement_assignment']
-        imp['disabled'] = True
-        imp['label'] = 'Implement ticket assignment'
-        imp['style'] = 'secondary'
-
-        _state['recommendation_toggle_active'] = False
-        _state['recommendation_progress'] = {
-            'visible': False, 'current': 0, 'total': 0,
-            'current_ticket_id': None, 'complete_message': None,
-        }
-
-    _broadcast()
-    return get_state()
-
-
-def set_tickets_loaded(total_tickets: int = 0) -> dict:
-    """Transition: all validation tickets have been fetched."""
-    with _lock:
-        _state['workflow_phase'] = 'tickets-loaded'
-
-        btn = _state['buttons']['get_validation_tickets']
-        btn['disabled'] = True
-        btn['label'] = 'Get validation tickets'
-        btn['style'] = 'locked'
-
-        rec = _state['buttons']['get_recommendations']
-        rec['disabled'] = False
-        rec['label'] = 'Get ticket recommendations'
-        rec['style'] = 'toggle-off'
-
-        imp = _state['buttons']['implement_assignment']
-        imp['disabled'] = True
-        imp['label'] = 'Implement ticket assignment'
-        imp['style'] = 'secondary'
-
-        _state['recommendation_toggle_active'] = False
-
-    _broadcast()
-    return get_state()
-
-
-def set_recommendations_loading() -> dict:
-    """Transition: recommendation engine toggled ON."""
-    with _lock:
-        _state['workflow_phase'] = 'recommendations-loading'
-
-        btn = _state['buttons']['get_validation_tickets']
-        btn['disabled'] = True
-        btn['label'] = 'Get validation tickets'
-        btn['style'] = 'locked'
-
-        rec = _state['buttons']['get_recommendations']
-        rec['disabled'] = False
-        rec['label'] = 'Processing...'
-        rec['style'] = 'toggle-on'
-
-        imp = _state['buttons']['implement_assignment']
-        imp['disabled'] = True
-        imp['label'] = 'Implement ticket assignment'
-        imp['style'] = 'secondary'
-
-        _state['recommendation_toggle_active'] = True
-
-    _broadcast()
-    return get_state()
-
-
-def set_recommendations_complete(total: int = 0) -> dict:
-    """Transition: all recommendations finished."""
-    with _lock:
-        _state['workflow_phase'] = 'recommendations-complete'
-
-        btn = _state['buttons']['get_validation_tickets']
-        btn['disabled'] = True
-        btn['label'] = 'Get validation tickets'
-        btn['style'] = 'locked'
-
-        rec = _state['buttons']['get_recommendations']
-        rec['disabled'] = False
-        rec['label'] = 'Get ticket recommendations'
-        rec['style'] = 'toggle-on'
-
-        imp = _state['buttons']['implement_assignment']
-        imp['disabled'] = False
-        imp['label'] = 'Implement ticket assignment'
-        imp['style'] = 'success'
-
-        _state['recommendation_toggle_active'] = True
-
-        prog = _state['recommendation_progress']
-        prog['visible'] = False
-        prog['complete_message'] = f'{total} recommendations complete'
-
-    _broadcast()
-    return get_state()
-
-
-def set_recommendations_toggled_off() -> dict:
-    """Transition: recommendation engine toggled OFF.
-
-    If some recommendations already exist the implement button stays enabled;
-    otherwise we fall back to tickets-loaded.
+    If *session_id* is provided the ``implement_assignment`` button's tooltip
+    is personalised for that user's consensus vote status.
     """
     with _lock:
-        _state['recommendation_toggle_active'] = False
+        snap = copy.deepcopy(_snapshot)
 
-        rec = _state['buttons']['get_recommendations']
-        rec['disabled'] = False
-        rec['label'] = 'Get ticket recommendations'
-        rec['style'] = 'toggle-off'
+    # Per-session tooltip override for consensus mode
+    if session_id is not None:
+        _apply_per_session_consensus(snap, session_id)
 
-        prog = _state['recommendation_progress']
-        prog['visible'] = False
-        prog['current_ticket_id'] = None
-
-        # Determine whether any recommendations exist.
-        # The caller should set the phase appropriately, but we provide a
-        # sensible default: keep 'recommendations-complete' if we were there,
-        # otherwise fall back to 'tickets-loaded'.
-        if _state['workflow_phase'] == 'recommendations-complete':
-            # Keep implement button enabled
-            pass
-        elif _state['workflow_phase'] == 'recommendations-loading':
-            # Check if any recommendations were completed before toggle-off.
-            # The caller can override this by calling set_recommendations_complete
-            # or set_tickets_loaded afterwards.  For now, check the progress.
-            if _state['recommendation_progress']['current'] > 0:
-                _state['workflow_phase'] = 'recommendations-complete'
-                imp = _state['buttons']['implement_assignment']
-                imp['disabled'] = False
-                imp['label'] = 'Implement ticket assignment'
-                imp['style'] = 'success'
-            else:
-                _state['workflow_phase'] = 'tickets-loaded'
-                imp = _state['buttons']['implement_assignment']
-                imp['disabled'] = True
-                imp['label'] = 'Implement ticket assignment'
-                imp['style'] = 'secondary'
-
-    _broadcast()
-    return get_state()
+    return snap
 
 
-def set_implement_in_progress(ticket_ids: list[str] | None = None) -> dict:
-    """Transition: implement assignment started."""
+def get_context() -> dict:
+    """Return a deep copy of the raw context (for debugging / tests)."""
     with _lock:
-        imp = _state['buttons']['implement_assignment']
-        imp['disabled'] = True
-        imp['label'] = 'Assigning...'
-        imp['style'] = 'loading'
-
-    _broadcast()
-    return get_state()
+        return dict(_ctx)
 
 
-def set_implement_complete() -> dict:
-    """Transition: implement assignment finished.
+# ── Core recompute + broadcast ────────────────────────────────────────────────
 
-    Re-enables the implement button (the frontend will refresh the label
-    based on remaining checkbox selection).
+def _recompute_and_broadcast() -> dict:
+    """Recompute the snapshot from the current context and broadcast.
+
+    MUST be called while ``_lock`` is already held.
     """
+    global _snapshot
+    _snapshot = button_rules.compute(dict(_ctx))
+    snap = copy.deepcopy(_snapshot)
+    # Release lock before broadcasting (broadcast acquires its own lock)
+    return snap
+
+
+def _broadcast(snap: dict) -> None:
+    """Push the snapshot to every connected SSE client."""
+    _vc.broadcast('ui-state-update', snap, buffer=False)
+
+
+def recompute() -> dict:
+    """Public recompute + broadcast.  Use when external state has changed."""
     with _lock:
-        imp = _state['buttons']['implement_assignment']
-        imp['disabled'] = False
-        imp['label'] = 'Implement ticket assignment'
-        imp['style'] = 'success'
-
-    _broadcast()
-    return get_state()
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
 
 
-# ── Recommendation progress (high-frequency, targeted update) ─────────────────
+# ── Context mutators ──────────────────────────────────────────────────────────
+# Each mutator updates one or more context keys, recomputes, and broadcasts.
+
+def set_validation_toggle(on: bool) -> dict:
+    """Toggle the 'Get validation tickets' button on or off."""
+    with _lock:
+        _ctx['validation_toggle_on'] = on
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
+
+def set_tickets_in_view(count: int) -> dict:
+    """Update the number of tickets currently displayed."""
+    with _lock:
+        _ctx['tickets_in_view'] = count
+        _ctx['total_tickets'] = count
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
+
+def set_recommendations_toggle(on: bool) -> dict:
+    """Toggle the 'Get recommendations' button on or off."""
+    with _lock:
+        _ctx['recommendations_toggle_on'] = on
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
+
+def set_checkbox_counts(checked: int, total: int) -> dict:
+    """Update checkbox selection counts and recompute."""
+    with _lock:
+        _ctx['checked_count'] = checked
+        _ctx['total_tickets'] = total
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
+
+def set_user_count(count: int) -> dict:
+    """Update the number of active presence sessions."""
+    with _lock:
+        _ctx['user_count'] = count
+        # If only 1 user remains, consensus is not possible
+        if count <= 1:
+            _ctx['consensus_active'] = False
+            _ctx['consensus_agreed'] = 0
+            _ctx['consensus_required'] = 0
+            _ctx['consensus_unlocked'] = False
+            _ctx['full_assignment_active'] = False
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
+
+def set_consensus_state(*, active: bool, agreed: int, required: int,
+                        unlocked: bool, full_assignment_active: bool | None = None) -> dict:
+    """Update consensus-related context variables."""
+    with _lock:
+        _ctx['consensus_active'] = active
+        _ctx['consensus_agreed'] = agreed
+        _ctx['consensus_required'] = required
+        _ctx['consensus_unlocked'] = unlocked
+        if full_assignment_active is not None:
+            _ctx['full_assignment_active'] = full_assignment_active
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
+
+def set_implement_in_progress(in_progress: bool) -> dict:
+    """Mark implement-assignment as in-progress or complete."""
+    with _lock:
+        _ctx['implement_in_progress'] = in_progress
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
 
 def update_recommendation_progress(current: int, total: int,
                                    ticket_id: str | None = None) -> None:
     """Update the recommendation progress indicator.
 
-    This is called frequently (once per ticket) so it broadcasts a smaller
-    targeted event rather than the full state dict.
+    Called frequently (once per ticket) so it updates the context but does
+    NOT broadcast the full state — the existing recommendation-start /
+    recommendation-progress SSE events handle per-ticket updates.  The
+    context is kept in sync for late-joining clients.
     """
     with _lock:
-        prog = _state['recommendation_progress']
+        prog = _ctx['recommendation_progress']
         prog['visible'] = True
         prog['current'] = current
         prog['total'] = total
         prog['current_ticket_id'] = ticket_id
 
-    # Don't broadcast full state — the existing recommendation-start /
-    # recommendation-progress SSE events handle this.  We just keep the
-    # server-side dict in sync for late-joining clients.
 
+def set_recommendation_complete(total: int) -> dict:
+    """Mark recommendation processing as complete.
 
-# ── Implement button label (selection-dependent) ─────────────────────────────
-
-def update_implement_label(selected: int, total: int) -> None:
-    """Update the implement button label based on checkbox selection.
-
-    Called from the sync-checkbox route so the server always knows the
-    correct label.  Broadcasts the full state.
+    Sets ``complete_message`` so the current broadcast carries the completion
+    indicator, then immediately clears it so subsequent broadcasts (triggered
+    by unrelated state changes like presence heartbeats) do not re-trigger
+    the completion animation on connected clients.
     """
     with _lock:
-        imp = _state['buttons']['implement_assignment']
-        if not imp['disabled'] or imp['style'] == 'success':
-            if selected == 0:
-                imp['disabled'] = True
-                imp['label'] = 'Implement ticket assignment'
-                imp['style'] = 'secondary'
-            elif selected < total:
-                imp['disabled'] = False
-                imp['label'] = f'Implement {selected}/{total} ticket assignment'
-                imp['style'] = 'success'
-            else:
-                imp['disabled'] = False
-                imp['label'] = 'Implement ticket assignment'
-                imp['style'] = 'success'
+        prog = _ctx['recommendation_progress']
+        prog['visible'] = False
+        prog['complete_message'] = f'{total} recommendations complete'
+        snap = _recompute_and_broadcast()
+        # Clear the one-shot complete_message so it doesn't persist
+        prog['complete_message'] = None
+    _broadcast(snap)
+    return snap
 
-    _broadcast()
+
+def reset() -> dict:
+    """Reset all context to defaults (e.g. when leaving multi-ticket mode)."""
+    with _lock:
+        _ctx.update({
+            'validation_toggle_on': False,
+            'tickets_in_view': 0,
+            'recommendations_toggle_on': False,
+            'checked_count': 0,
+            'total_tickets': 0,
+            'user_count': _ctx.get('user_count', 1),  # preserve presence count
+            'consensus_active': False,
+            'consensus_agreed': 0,
+            'consensus_required': 0,
+            'consensus_unlocked': False,
+            'full_assignment_active': False,
+            'implement_in_progress': False,
+            'user_has_agreed': False,
+            'recommendation_progress': {
+                'visible': False,
+                'current': 0,
+                'total': 0,
+                'current_ticket_id': None,
+                'complete_message': None,
+            },
+        })
+        snap = _recompute_and_broadcast()
+    _broadcast(snap)
+    return snap
+
+
+# ── Per-session consensus tooltip helper ──────────────────────────────────────
+
+def _apply_per_session_consensus(snap: dict, session_id: str) -> None:
+    """Adjust the implement button tooltip based on whether *session_id* has
+    voted in the current consensus round.
+
+    This is called at read-time (get_state) so the broadcast snapshot stays
+    generic while each client's initial-state fetch gets a personalised tooltip.
+    """
+    from app.state import consensus_state as _cs
+
+    imp = snap.get('buttons', {}).get('implement_assignment', {})
+    if imp.get('mode') != 'consensus':
+        return
+
+    cs = _cs.get_state()
+    agreed_list = cs.get('agreed', [])
+    has_agreed = session_id in agreed_list
+
+    if has_agreed:
+        imp['tooltip'] = 'You voted to agree on bulk ticket assignment'
+        imp['style'] = 'consensus-on'
+    else:
+        imp['tooltip'] = 'You have not yet agreed on bulk ticket assignment'
+        imp['style'] = 'consensus-off'

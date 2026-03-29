@@ -398,78 +398,41 @@ class TicketRenderer {
    * Render the three-way support group selector
    * @param {Object} data - Recommendations data containing support groups
    * @param {string} selectorId - Unique ID for this selector instance
+   * @param {boolean} [compact=false] - Use compact labels and styling
    * @returns {string} HTML string for the selector
    * @private
    */
-  static _renderSupportGroupSelector(data, selectorId) {
+  static _renderSupportGroupSelector(data, selectorId, compact = false) {
     const firstChoice = data.recommended_support_group || 'N/A';
     const secondChoice = data.second_choice_support_group || 'N/A';
     const thirdChoice = data.third_choice_support_group || 'N/A';
 
+    const compactClass = compact ? ' support-group-selector-compact' : '';
+    const headerLabel = compact ? 'Select Support Group:' : 'Select Support Group for Assignment:';
+    const rankLabels = compact ? ['1st', '2nd', '3rd'] : ['1st Choice', '2nd Choice', '3rd Choice'];
+
     return `
-      <div class="support-group-selector">
-        <span class="support-group-selector-label">Select Support Group for Assignment:</span>
+      <div class="support-group-selector${compactClass}">
+        <span class="support-group-selector-label">${headerLabel}</span>
         <div class="support-group-options">
           <div class="support-group-option">
             <input type="radio" id="${selectorId}-1" name="${selectorId}" value="${firstChoice}" checked>
             <label for="${selectorId}-1">
-              <span class="option-rank">1st Choice</span>
+              <span class="option-rank">${rankLabels[0]}</span>
               <span class="option-name">${firstChoice}</span>
             </label>
           </div>
           <div class="support-group-option">
             <input type="radio" id="${selectorId}-2" name="${selectorId}" value="${secondChoice}">
             <label for="${selectorId}-2">
-              <span class="option-rank">2nd Choice</span>
+              <span class="option-rank">${rankLabels[1]}</span>
               <span class="option-name">${secondChoice}</span>
             </label>
           </div>
           <div class="support-group-option">
             <input type="radio" id="${selectorId}-3" name="${selectorId}" value="${thirdChoice}">
             <label for="${selectorId}-3">
-              <span class="option-rank">3rd Choice</span>
-              <span class="option-name">${thirdChoice}</span>
-            </label>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Render the compact three-way support group selector for batch mode
-   * @param {Object} data - Recommendations data containing support groups
-   * @param {string} selectorId - Unique ID for this selector instance
-   * @returns {string} HTML string for the selector
-   * @private
-   */
-  static _renderSupportGroupSelectorCompact(data, selectorId) {
-    const firstChoice = data.recommended_support_group || 'N/A';
-    const secondChoice = data.second_choice_support_group || 'N/A';
-    const thirdChoice = data.third_choice_support_group || 'N/A';
-
-    return `
-      <div class="support-group-selector support-group-selector-compact">
-        <span class="support-group-selector-label">Select Support Group:</span>
-        <div class="support-group-options">
-          <div class="support-group-option">
-            <input type="radio" id="${selectorId}-1" name="${selectorId}" value="${firstChoice}" checked>
-            <label for="${selectorId}-1">
-              <span class="option-rank">1st</span>
-              <span class="option-name">${firstChoice}</span>
-            </label>
-          </div>
-          <div class="support-group-option">
-            <input type="radio" id="${selectorId}-2" name="${selectorId}" value="${secondChoice}">
-            <label for="${selectorId}-2">
-              <span class="option-rank">2nd</span>
-              <span class="option-name">${secondChoice}</span>
-            </label>
-          </div>
-          <div class="support-group-option">
-            <input type="radio" id="${selectorId}-3" name="${selectorId}" value="${thirdChoice}">
-            <label for="${selectorId}-3">
-              <span class="option-rank">3rd</span>
+              <span class="option-rank">${rankLabels[2]}</span>
               <span class="option-name">${thirdChoice}</span>
             </label>
           </div>
@@ -861,7 +824,7 @@ class TicketRenderer {
       } else {
         // Regular ticket recommendation
         const sgSelectorId = `sg-selector-batch-${ticketIndex}`;
-        const sgSelectorHtml = this._renderSupportGroupSelectorCompact(data, sgSelectorId);
+        const sgSelectorHtml = this._renderSupportGroupSelector(data, sgSelectorId, true);
         
         const manualSgHtml = this._renderManualSupportGroupSelector(ticketIndex);
         

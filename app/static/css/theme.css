@@ -1253,6 +1253,65 @@ body {
 
 /* ── End recommendation toggle button ────────────────────────────────────── */
 
+/* ── Validation toggle button (Get validation tickets) ───────────────────── */
+
+/*
+ * OFF state: outlined blue button, indicating ready to activate.
+ */
+.validation-toggle-off {
+  background-color: var(--bg-color) !important;
+  color: #0d6efd !important;
+  border: 2px solid #0d6efd !important;
+  border-radius: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.validation-toggle-off:hover:not(:disabled) {
+  background-color: rgba(13, 110, 253, 0.08) !important;
+}
+
+/*
+ * ON state: solid blue filled button, indicating active polling.
+ */
+.validation-toggle-on {
+  background-color: #0d6efd !important;
+  color: #ffffff !important;
+  border: 2px solid #0d6efd !important;
+  border-radius: 0.5rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+}
+
+.validation-toggle-on:hover:not(:disabled) {
+  background-color: #0b5ed7 !important;
+  border-color: #0b5ed7 !important;
+}
+
+/* ── Dark mode adjustments ── */
+
+[data-bs-theme="dark"] .validation-toggle-off {
+  color: #6ea8fe !important;
+  border-color: #6ea8fe !important;
+}
+
+[data-bs-theme="dark"] .validation-toggle-off:hover:not(:disabled) {
+  background-color: rgba(110, 168, 254, 0.12) !important;
+}
+
+[data-bs-theme="dark"] .validation-toggle-on {
+  background-color: #0d6efd !important;
+  border-color: #0d6efd !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.35);
+}
+
+[data-bs-theme="dark"] .validation-toggle-on:hover:not(:disabled) {
+  background-color: #3d8bfd !important;
+  border-color: #3d8bfd !important;
+}
+
+/* ── End validation toggle button ────────────────────────────────────────── */
+
 /* ── Presence indicators ─────────────────────────────────────────────────── */
 
 #presence-indicators {

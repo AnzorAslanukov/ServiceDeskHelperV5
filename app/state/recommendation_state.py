@@ -170,9 +170,9 @@ def process_single(ticket_id: str) -> None:
         # Update centralised UI state progress tracker
         _ui_state.update_recommendation_progress(completed, total, ticket_id)
 
-        # If all recommendations are done, transition the workflow buttons
+        # If all recommendations are done, mark completion
         if completed > 0 and completed >= total:
-            _ui_state.set_recommendations_complete(total)
+            _ui_state.set_recommendation_complete(total)
 
 
 # ── Batch processing ─────────────────────────────────────────────────────────

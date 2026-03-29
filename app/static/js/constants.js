@@ -90,7 +90,9 @@ const CONSTANTS = {
     CONSENSUS_ACTIVATE: '/api/consensus/activate',
     CONSENSUS_VOTE: '/api/consensus/vote',
     CONSENSUS_DEACTIVATE: '/api/consensus/deactivate',
+    CONSENSUS_DISAGREE: '/api/consensus/disagree',
     CONSENSUS_STATE: '/api/consensus/state',
+    TOGGLE_VALIDATION: '/api/toggle-validation',
     SYNC_CHECKBOX: '/api/sync-checkbox',
     SYNC_ASSIGNMENT_SELECTION: '/api/sync-assignment-selection',
     SYNC_POLL_TIMER: '/api/sync-poll-timer',
@@ -107,7 +109,7 @@ const CONSTANTS = {
     CONTENT_PREVIEW_LENGTH: 200,
     MAX_RESULTS: 5,
     COPY_SUCCESS_DURATION: 3000,
-    VALIDATION_POLL_INTERVAL: 90000,
+    VALIDATION_POLL_INTERVAL: 30000,
     PRESENCE_HEARTBEAT_INTERVAL: 5000,
     CONSENSUS_TICKET_THRESHOLD: 5
   },
