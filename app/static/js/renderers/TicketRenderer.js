@@ -678,9 +678,10 @@ class TicketRenderer {
       // Disable the 3 AI recommendation radio buttons for this ticket
       TicketRenderer._setAiRadiosDisabled(ticketIndex, true);
 
-      // Add warm color highlight to the accordion header
-      const accordionHeader = document.querySelector(`[data-ticket-index="${ticketIndex}"] > .accordion-header`);
-      if (accordionHeader) accordionHeader.classList.add('manual-sg-header');
+      // Header styling is driven EXCLUSIVELY by the server via
+      // 'ticket-header-update' SSE events.  Do NOT manipulate header
+      // classes locally — the server's ticket_header_rules.py is the
+      // single source of truth.
 
       // Sync manual SG selection to other clients
       const ticketItem = document.querySelector(`[data-ticket-index="${ticketIndex}"]`);
@@ -705,9 +706,9 @@ class TicketRenderer {
       // Re-enable the 3 AI recommendation radio buttons and re-select 1st choice
       TicketRenderer._setAiRadiosDisabled(ticketIndex, false);
 
-      // Remove warm color highlight from the accordion header
-      const accordionHeader = document.querySelector(`[data-ticket-index="${ticketIndex}"] > .accordion-header`);
-      if (accordionHeader) accordionHeader.classList.remove('manual-sg-header');
+      // Header styling is driven EXCLUSIVELY by the server via
+      // 'ticket-header-update' SSE events.  Do NOT manipulate header
+      // classes locally.
 
       // Sync manual SG clear to other clients
       const ticketItem = document.querySelector(`[data-ticket-index="${ticketIndex}"]`);
@@ -1462,10 +1463,88 @@ class TicketRenderer {
   }
 
   /**
+   * Apply server-computed header state to a ticket's accordion header.
+   *
+   * This is the **single source of truth** for header styling and editor
+   * attribution.  The server's ticket_header_rules.py computes the state
+   * and broadcasts it via the 'ticket-header-update' SSE event.
+   *
+   * @param {Object} headerState - Pre-computed header state from the server
+   * @param {string} headerState.ticket_id - The ticket ID
+   * @param {boolean} headerState.has_changes - Whether any field differs from original
+   * @param {string} headerState.header_style - 'default' | 'editor-changed' | 'editor-manual'
+   * @param {string|null} headerState.dominant_color - Hex color for header tint
+   * @param {string|null} headerState.dominant_color_light - RGBA color for light background
+   * @param {Array} headerState.attribution - Array of {field, field_label, session_id, label, color}
+   */
+  static applyServerHeaderState(headerState) {
+    const ticketId = headerState.ticket_id;
+    const item = document.querySelector(
+      `#${CONSTANTS.SELECTORS.VALIDATION_ACCORDION} > .accordion-item[data-ticket-id="${ticketId}"]`
+    );
+    if (!item) return;
+
+    const header = item.querySelector('.accordion-header');
+    if (!header) return;
+
+    // ── Thorough reset ───────────────────────────────────────────────────
+    // Remove ALL editor/manual classes from the header element
+    header.classList.remove('editor-changed-header', 'editor-manual-header', 'manual-sg-header');
+
+    // Remove CSS custom properties from the accordion-item
+    item.style.removeProperty('--editor-color');
+    item.style.removeProperty('--editor-color-light');
+
+    // Explicitly clear any inline background styles that may have been set
+    // on the header or its accordion-button child by previous state
+    // applications or by other code paths.  This ensures the CSS cascade
+    // falls back to Bootstrap's default accordion styling.
+    header.style.removeProperty('background');
+    header.style.removeProperty('background-color');
+    header.style.removeProperty('border-left');
+
+    const accBtn = header.querySelector('.accordion-button');
+    if (accBtn) {
+      accBtn.style.removeProperty('background');
+      accBtn.style.removeProperty('background-color');
+    }
+
+    if (!headerState.has_changes) {
+      // No changes — reset to default: remove attribution label and return
+      this._removeEditorAttributionLabel(item);
+      return;
+    }
+
+    // Apply dominant color
+    if (headerState.dominant_color) {
+      // Adjust opacity for dark mode
+      const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+      let lightColor = headerState.dominant_color_light;
+      if (isDark && lightColor) {
+        // Server computes with 0.15 opacity; add 0.08 for dark mode
+        lightColor = this._hexToLightRgba(headerState.dominant_color, 0.23);
+      }
+      item.style.setProperty('--editor-color', headerState.dominant_color);
+      item.style.setProperty('--editor-color-light', lightColor || headerState.dominant_color_light);
+    }
+
+    // Apply header style class
+    if (headerState.header_style === 'editor-manual') {
+      header.classList.add('editor-manual-header');
+    } else if (headerState.header_style === 'editor-changed') {
+      header.classList.add('editor-changed-header');
+    }
+
+    // Render attribution label from server-computed attribution array
+    this._renderServerAttributionLabel(item, headerState.attribution);
+  }
+
+  /**
    * Apply editor attribution coloring to a ticket's accordion header.
    *
-   * This sets CSS custom properties on the accordion-item element and toggles
-   * the appropriate CSS class so the header background reflects who edited it.
+   * @deprecated Use applyServerHeaderState() instead. This method is kept
+   * for backward compatibility but the server is now the single source of
+   * truth for header state via 'ticket-header-update' SSE events.
    *
    * @param {string} ticketId - The ticket ID
    * @param {Object} editors - Map of field → {session_id, label, color}
@@ -1591,6 +1670,41 @@ class TicketRenderer {
   static _removeEditorAttributionLabel(accordionItem) {
     const label = accordionItem.querySelector('.editor-attribution-label');
     if (label) label.remove();
+  }
+
+  /**
+   * Render the editor attribution label from server-computed attribution data.
+   * @param {HTMLElement} accordionItem - The accordion-item element
+   * @param {Array} attribution - Array of {field, field_label, session_id, label, color}
+   * @private
+   */
+  static _renderServerAttributionLabel(accordionItem, attribution) {
+    const body = accordionItem.querySelector('.accordion-body');
+    if (!body) return;
+
+    // Remove existing label
+    const existing = body.querySelector('.editor-attribution-label');
+    if (existing) existing.remove();
+
+    if (!attribution || attribution.length === 0) return;
+
+    const items = attribution.map(attr => `
+      <span class="editor-attr-item">
+        <span class="editor-color-dot" style="background-color: ${attr.color};"></span>
+        <span class="editor-name">${attr.label}</span>
+        <span class="editor-action">changed ${attr.field_label}</span>
+      </span>
+    `);
+
+    const labelHtml = `
+      <div class="editor-attribution-label">
+        <i class="bi bi-pencil-square"></i>
+        ${items.join('<span class="editor-separator">·</span>')}
+      </div>
+    `;
+
+    // Insert at the top of the accordion body
+    body.insertAdjacentHTML('afterbegin', labelHtml);
   }
 
   // ─── Real-time queue monitoring helpers ──────────────────────────────────

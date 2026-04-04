@@ -24,6 +24,7 @@ from app.state import validation_cache
 from app.state import recommendation_state
 from app.state import sync_state
 from app.state import ui_state
+from app.state import recommendation_originals
 
 validation_bp = Blueprint('validation', __name__)
 
@@ -91,9 +92,10 @@ def api_validation_broadcast():
                 sync_checkboxes = sync_state.get_checkbox_state()
                 sync_assignments = sync_state.get_assignment_selections()
                 sync_editors = sync_state.get_assignment_editors()
+                sync_headers = sync_state.compute_all_headers()
                 sync_next_poll = sync_state.get_next_poll()
                 if sync_checkboxes or sync_editors:
-                    yield f"event: sync-state-burst\ndata: {json.dumps({'checkboxes': sync_checkboxes, 'assignments': sync_assignments, 'editors': sync_editors, 'next_poll_at': sync_next_poll})}\n\n"
+                    yield f"event: sync-state-burst\ndata: {json.dumps({'checkboxes': sync_checkboxes, 'assignments': sync_assignments, 'editors': sync_editors, 'headers': sync_headers, 'next_poll_at': sync_next_poll})}\n\n"
 
             elif current_state == 'loading':
                 yield f"event: state\ndata: {json.dumps({'state': 'loading'})}\n\n"
@@ -161,6 +163,7 @@ def api_check_validation_tickets():
         # Purge caches for tickets that left
         if left_queue:
             recommendation_state.purge_tickets(left_queue)
+            recommendation_originals.purge_tickets(left_queue)
             sync_state.purge_tickets(left_queue)
             if DEBUG:
                 output.add_line(

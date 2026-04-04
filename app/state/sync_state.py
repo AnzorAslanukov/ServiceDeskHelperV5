@@ -9,6 +9,8 @@ connected clients stay in sync.
 import threading
 
 from app.state import validation_cache
+from app.state import ticket_header_rules
+from app.state import recommendation_originals
 
 _lock = threading.Lock()
 _checkbox_state: dict = {}           # ticket_id -> bool
@@ -165,6 +167,54 @@ def broadcast_assignment(ticket_id: str, field: str, value: str,
     if editor_info:
         payload['editor'] = editor_info
     validation_cache.broadcast('assignment-selection-sync', payload, buffer=False)
+
+
+# ── Ticket header state (server-driven) ──────────────────────────────────────
+
+def compute_and_broadcast_header(ticket_id: str) -> dict:
+    """Compute the authoritative header state for *ticket_id* and broadcast it.
+
+    Uses :mod:`ticket_header_rules` (pure computation) with inputs from
+    :mod:`recommendation_originals` and the local assignment / editor stores.
+
+    Returns the computed header state dict.
+    """
+    original = recommendation_originals.get_original(ticket_id) or {}
+
+    with _lock:
+        current = dict(_assignment_selections.get(ticket_id, {}))
+        editors = {
+            f: dict(v)
+            for f, v in _assignment_editors.get(ticket_id, {}).items()
+        }
+
+    header_state = ticket_header_rules.compute(original, current, editors)
+    header_state['ticket_id'] = ticket_id
+
+    validation_cache.broadcast('ticket-header-update', header_state, buffer=False)
+    return header_state
+
+
+def compute_all_headers() -> dict:
+    """Compute header states for ALL tickets that have originals stored.
+
+    Returns a dict of ``ticket_id -> header_state``.  Used for sync-state-burst
+    replay to late-joining clients.
+    """
+    all_originals = recommendation_originals.get_all()
+    result = {}
+
+    with _lock:
+        for ticket_id, original in all_originals.items():
+            current = dict(_assignment_selections.get(ticket_id, {}))
+            editors = {
+                f: dict(v)
+                for f, v in _assignment_editors.get(ticket_id, {}).items()
+            }
+            result[ticket_id] = ticket_header_rules.compute(
+                original, current, editors)
+
+    return result
 
 
 def broadcast_poll_timer(epoch_ms: int) -> None:

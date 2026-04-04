@@ -890,6 +890,15 @@ function startValidationBroadcastListener() {
     try { _applySyncStateBurst(JSON.parse(event.data)); } catch (e) {}
   });
 
+  // ── ticket-header-update: SERVER-DRIVEN HEADER STATE ───────────────────
+  validationBroadcastSource.addEventListener('ticket-header-update', (event) => {
+    try {
+      const headerState = JSON.parse(event.data);
+      debugLog('[MAIN] - Broadcast ticket-header-update:', headerState.ticket_id, headerState.header_style);
+      TicketRenderer.applyServerHeaderState(headerState);
+    } catch (e) {}
+  });
+
   // ── ui-state-update: THE SINGLE SOURCE OF TRUTH FOR BUTTON STATE ───────
   validationBroadcastSource.addEventListener('ui-state-update', (event) => {
     try {
@@ -917,7 +926,6 @@ function stopValidationBroadcastListener() {
 
 let _applyingSyncedCheckbox = false;
 let _applyingSyncedAssignment = false;
-const _editorState = {};
 
 function _applySyncedCheckboxState(data) {
   _applyingSyncedCheckbox = true;
@@ -956,8 +964,9 @@ function _applySyncedAssignmentSelection(data) {
         const clearBtn = container.querySelector(`.manual-sg-clear`);
         if (clearBtn) clearBtn.style.display = 'none';
         if (typeof TicketRenderer !== 'undefined' && TicketRenderer._setAiRadiosDisabled) TicketRenderer._setAiRadiosDisabled(parseInt(index), false);
-        const header = ticketItem.querySelector('.accordion-header');
-        if (header) header.classList.remove('manual-sg-header');
+        // Header styling is driven EXCLUSIVELY by the server via
+        // 'ticket-header-update' SSE events.  Do NOT manipulate header
+        // classes locally.
       }
     } else if (field === 'manual_support_group') {
       const manualInput = container.querySelector(`input[name="manual-sg-batch-${index}"]`);
@@ -967,28 +976,26 @@ function _applySyncedAssignmentSelection(data) {
         if (searchInput) { searchInput.value = value; searchInput.readOnly = true; searchInput.classList.add('manual-sg-selected'); }
         const clearBtn = container.querySelector(`.manual-sg-clear`); if (clearBtn) clearBtn.style.display = '';
         if (typeof TicketRenderer !== 'undefined' && TicketRenderer._setAiRadiosDisabled) TicketRenderer._setAiRadiosDisabled(parseInt(index), true);
-        const header = ticketItem.querySelector('.accordion-header'); if (header) header.classList.add('manual-sg-header');
+        // Header styling is driven EXCLUSIVELY by the server via
+        // 'ticket-header-update' SSE events.  Do NOT manipulate header
+        // classes locally.
       } else {
         if (manualInput) manualInput.value = '';
         if (searchInput) { searchInput.value = ''; searchInput.readOnly = false; searchInput.classList.remove('manual-sg-selected'); }
         const clearBtn = container.querySelector(`.manual-sg-clear`); if (clearBtn) clearBtn.style.display = 'none';
         if (typeof TicketRenderer !== 'undefined' && TicketRenderer._setAiRadiosDisabled) TicketRenderer._setAiRadiosDisabled(parseInt(index), false);
         const firstRadio = container.querySelector(`input[name="sg-selector-batch-${index}"]`); if (firstRadio) firstRadio.checked = true;
-        const header = ticketItem.querySelector('.accordion-header'); if (header) header.classList.remove('manual-sg-header');
+        // Header styling is driven EXCLUSIVELY by the server via
+        // 'ticket-header-update' SSE events.  Do NOT manipulate header
+        // classes locally.
       }
     } else if (field === 'priority_radio') {
       const radios = container.querySelectorAll(`input[name="priority-selector-batch-${index}"]`);
       radios.forEach(r => { r.checked = (r.value === value); });
     }
 
-    if (data.editor) {
-      if (!_editorState[ticket_id]) _editorState[ticket_id] = {};
-      _editorState[ticket_id][field] = data.editor;
-    } else if (!value && _editorState[ticket_id]) {
-      delete _editorState[ticket_id][field];
-      if (Object.keys(_editorState[ticket_id]).length === 0) delete _editorState[ticket_id];
-    }
-    TicketRenderer.applyEditorAttribution(ticket_id, _editorState[ticket_id] || null);
+    // Editor attribution is now handled by the server via 'ticket-header-update'
+    // SSE events.  No client-side editor state management needed here.
   } finally { _applyingSyncedAssignment = false; }
 }
 
@@ -1011,24 +1018,22 @@ function _applySyncStateBurst(data) {
     } finally { _applyingSyncedCheckbox = false; }
   }
 
-  if (data.editors) {
-    for (const [ticketId, fields] of Object.entries(data.editors)) _editorState[ticketId] = fields;
-  }
-
   if (data.assignments) {
     _applyingSyncedAssignment = true;
     try {
       for (const [ticketId, selections] of Object.entries(data.assignments)) {
         for (const [field, value] of Object.entries(selections)) {
-          const editorInfo = (_editorState[ticketId] && _editorState[ticketId][field]) ? _editorState[ticketId][field] : undefined;
-          _applySyncedAssignmentSelection({ ticket_id: ticketId, field, value, editor: editorInfo });
+          _applySyncedAssignmentSelection({ ticket_id: ticketId, field, value });
         }
       }
     } finally { _applyingSyncedAssignment = false; }
   }
 
-  if (data.editors) {
-    for (const [ticketId, fields] of Object.entries(data.editors)) TicketRenderer.applyEditorAttribution(ticketId, fields);
+  // Apply server-computed header states (single source of truth)
+  if (data.headers) {
+    for (const [ticketId, headerState] of Object.entries(data.headers)) {
+      TicketRenderer.applyServerHeaderState({ ticket_id: ticketId, ...headerState });
+    }
   }
 
   if (data.next_poll_at) _applySyncedPollTimer(data);
@@ -1046,19 +1051,10 @@ function syncCheckboxState(ticketId, checked, isSelectAll = false) {
 function syncAssignmentSelection(ticketId, field, value) {
   if (_applyingSyncedAssignment) return;
 
-  if (mySessionId && myPresenceColor && myDisplayName) {
-    if (value) {
-      if (!_editorState[ticketId]) _editorState[ticketId] = {};
-      _editorState[ticketId][field] = { session_id: mySessionId, label: myDisplayName, color: myPresenceColor };
-    } else {
-      if (_editorState[ticketId]) {
-        delete _editorState[ticketId][field];
-        if (Object.keys(_editorState[ticketId]).length === 0) delete _editorState[ticketId];
-      }
-    }
-    TicketRenderer.applyEditorAttribution(ticketId, _editorState[ticketId] || null);
-  }
-
+  // Send the actual value to the server — the server is the single source
+  // of truth for determining whether a value matches the original AI
+  // recommendation.  The server computes and broadcasts the authoritative
+  // header state via the 'ticket-header-update' SSE event.
   fetch(CONSTANTS.API.SYNC_ASSIGNMENT_SELECTION, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_id: ticketId, field, value, session_id: mySessionId || '' })

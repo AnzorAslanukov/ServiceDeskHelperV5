@@ -11,6 +11,7 @@ from app.config import RECOMMENDATION_MAX_WORKERS
 from app.logic.ticket_advice import get_ticket_advice
 from app.state import validation_cache
 from app.state import ui_state as _ui_state
+from app.state import recommendation_originals
 from services.output import Output
 from app.config import DEBUG
 
@@ -117,6 +118,14 @@ def process_single(ticket_id: str) -> None:
         if result and 'error' not in result:
             with _lock:
                 _cache[ticket_id] = result
+
+            # Store the original AI recommendations for server-side
+            # header-state computation (ticket_header_rules).
+            recommendation_originals.set_original(
+                ticket_id,
+                support_group=result.get('recommended_support_group', ''),
+                priority=result.get('recommended_priority_level', ''),
+            )
 
             validation_cache.broadcast('recommendation-complete', {
                 'ticket_id': ticket_id,

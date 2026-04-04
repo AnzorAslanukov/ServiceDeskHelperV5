@@ -615,7 +615,28 @@ body {
  * Classes:
  *   .editor-changed-header  — user color from ticket number onward (no amber)
  *   .editor-manual-header   — amber left + user color right (split gradient)
+ *
+ * DEFAULT STATE:
+ *   When no editor class is present the header must revert to the standard
+ *   Bootstrap accordion appearance.  The rule below explicitly clears any
+ *   lingering background / border-left that might survive a class removal
+ *   due to browser rendering quirks or CSS specificity conflicts.
  */
+
+/* Explicit default: no editor classes → transparent background, no border */
+#validationTicketsAccordion > .accordion-item > .accordion-header:not(.editor-changed-header):not(.editor-manual-header):not(.manual-sg-header) {
+  background-color: transparent !important;
+  background: none !important;
+  border-left: none !important;
+}
+
+#validationTicketsAccordion > .accordion-item > .accordion-header:not(.editor-changed-header):not(.editor-manual-header):not(.manual-sg-header) .accordion-button {
+  background: none !important;
+}
+
+#validationTicketsAccordion > .accordion-item > .accordion-header:not(.editor-changed-header):not(.editor-manual-header):not(.manual-sg-header) .accordion-button:not(.collapsed) {
+  background-color: var(--bs-accordion-active-bg) !important;
+}
 
 /* User-color-only header (support group radio or priority change) */
 .editor-changed-header .accordion-button {
