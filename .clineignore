@@ -5,6 +5,10 @@ support_group_keywords.json
 locations.json
 run_old.py
 
-/__pycache__/
-/services/__pycache__/
 /app/static/static_test/
+/__pycache__
+/services/__pycache__
+app/__pycache__
+app/state/__pycache__
+app/routes/__pycache__
+app/logic/__pycache__
