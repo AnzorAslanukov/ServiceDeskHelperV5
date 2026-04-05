@@ -6,7 +6,7 @@ are easy to find, audit, and change.
 """
 
 # ── Global debug flag ─────────────────────────────────────────────────────────
-DEBUG = True
+DEBUG = False
 
 # ── Presence ──────────────────────────────────────────────────────────────────
 SESSION_EXPIRY_SECONDS = 60  # remove sessions silent for this long
